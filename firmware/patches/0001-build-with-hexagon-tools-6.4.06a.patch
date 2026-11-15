@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-3.0-only
+# Applies to the lines this patch adds. The context and the removed lines belong to their owners
+# (Qualcomm modem_proc sources).
+#
+# Build with Hexagon tools 6.4.06.a
+#
+# The source drop expects tools release 6.4.03. With 6.4.06.a a few new compiler warnings would stop the
+# build (-Werror), so warnings are not errors here.
+--- a/build/ms/build_cfg.xml
++++ b/build/ms/build_cfg.xml
+@@ -40 +40 @@
+-    <cflags> -Wno-medium -Wno-low -hexagon-predef-argset=modem-sw -mllvm -shrink-wrap-ext-wrapper-section=.wrap.func </cflags>
++    <cflags> -Wno-error -Wno-tautological-constant-out-of-range-compare -Wno-medium -Wno-low -hexagon-predef-argset=modem-sw -mllvm -shrink-wrap-ext-wrapper-section=.wrap.func </cflags>
+@@ -44 +44 @@
+-    <hexagon_rtos_release> 6.4.03   </hexagon_rtos_release>
++    <hexagon_rtos_release> 6.4.06.a </hexagon_rtos_release>

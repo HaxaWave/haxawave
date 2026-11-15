@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-3.0-only
+[Unit]
+Description=SDR sample stream service (modem DSP to TCP)
+After=network.target
+
+[Service]
+ExecStart=/usr/lib/sdr/sdrd
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

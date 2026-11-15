@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-3.0-only
+[Unit]
+Description=Use a custom modem firmware image (FW_DIR from /etc/qcom-sdr/modem-fw.conf)
+DefaultDependencies=no
+After=msm-firmware-loader.service
+Before=systemd-udevd.service
+Requires=msm-firmware-loader.service
+ConditionPathExists=/etc/qcom-sdr/modem-fw.conf
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/qcom-sdr-load-modem-fw.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

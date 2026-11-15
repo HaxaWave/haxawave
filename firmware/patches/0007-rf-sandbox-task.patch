@@ -1,0 +1,242 @@
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-3.0-only
+# Applies to the lines this patch adds. The context and the removed lines belong to their owners
+# (Qualcomm modem_proc sources).
+#
+# rf_sandbox: a task that runs code supplied by the application processor
+#
+# Adds the RCINIT task rf_sandbox (rf_sandbox_task.c/.h and its entry in rfa_rf_task_common.scons). It
+# publishes an address table in IMEM (0x08600F00), so the modem's mapping of IMEM becomes writable
+# (attach="rw" in cust_config.xml). See ../README.md, "The rf_sandbox task".
+--- a/config/8916/ms/cust_config.xml
++++ b/config/8916/ms/cust_config.xml
+@@ -242,0 +243 @@
++<!-- attach="rw" (stock: "rx"): the rf_sandbox task writes its address table into IMEM -->
+@@ -245 +246 @@
+-          attach="rx" 
++          attach="rw" 
+--- a/rfa/rf/task/common/build/rfa_rf_task_common.scons
++++ b/rfa/rf/task/common/build/rfa_rf_task_common.scons
+@@ -420,0 +421,15 @@
++RCINIT_TASK_RF_SANDBOX = {
++  # Started late (after the RF and GERAN sequence) at a priority that does not pre-empt them.
++  'sequence_group'             : 'RCINIT_GROUP_7',
++  'thread_name'                : 'rf_sandbox',
++  'stack_size_bytes'           : '4096',
++  'priority_amss_order'        : 'RF_PRI_ORDER',
++  'thread_entry'               : 'rf_sandbox_task',
++  'tcb_name'                   : 'rf_sandbox_tcb',
++  'cpu_affinity'               : env.subst('$MODEM_CPU_AFFINITY'),
++  'policy_optin'               : ['default', 'ftm', ],
++}
++
++if 'USES_RCINIT' in env:
++  env.AddRCInitTask(IMAGE_SOURCES, RCINIT_TASK_RF_SANDBOX)
++
+--- a/rfa/rf/task/common/inc/rf_sandbox_task.h
++++ b/rfa/rf/task/common/inc/rf_sandbox_task.h
+@@ -0,0 +1,55 @@
++#ifndef RF_SANDBOX_TASK_H
++#define RF_SANDBOX_TASK_H
++/*
++ * rf_sandbox: a small RCINIT task that runs code supplied by the application processor (AP) on the modem DSP.
++ *
++ * The AP finds the control block through a table in IMEM (see rf_sandbox_task.c), writes the code into
++ * rf_sandbox_dyn_scratch and the call arguments into the control block, and increments `seq`. The task calls the code
++ * (RF_SANDBOX_CMD_CALL_FN) and sets `ack = seq`. Everything else (memory and register access) is done by that code,
++ * or by the AP itself through /dev/mem.
++ */
++#include "comdef.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#define RF_SANDBOX_CTRL_MAGIC       0x58424452U  /* "RDBX" in memory (little endian) */
++
++/* Command numbers. The values are part of the interface used by the host tools, so they do not change. */
++#define RF_SANDBOX_CMD_NONE         0U   /* no operation, only acknowledged (liveness check) */
++#define RF_SANDBOX_CMD_CALL_FN      29U  /* fn(arg1, data_words[0], data_words[1]) at arg0, inside the scratch area */
++
++#define RF_SANDBOX_STATUS_IDLE      0U
++#define RF_SANDBOX_STATUS_DONE      1U
++#define RF_SANDBOX_STATUS_BAD_CMD   0xFFFFFFFFU
++
++/* `result` of RF_SANDBOX_CMD_CALL_FN when arg0 is outside the scratch area (nothing is called) */
++#define RF_SANDBOX_RESULT_BAD_ADDR  0xE0000001U
++
++#define RF_SANDBOX_DEFAULT_PERIOD_MS 1000U
++
++typedef struct
++{
++  volatile uint32 magic;        /* RF_SANDBOX_CTRL_MAGIC */
++  volatile uint32 seq;          /* written by the AP: a new command when it differs from ack */
++  volatile uint32 ack;          /* written by the task: seq of the last finished command */
++  volatile uint32 cmd;          /* RF_SANDBOX_CMD_* */
++  volatile uint32 arg0;
++  volatile uint32 arg1;
++  volatile uint32 status;       /* RF_SANDBOX_STATUS_* */
++  volatile uint32 result;       /* return value of the called code */
++  volatile uint32 reserved;     /* unused; keeps the layout the host tools expect */
++  volatile uint32 period_ms;    /* wake-up period of the task, written by the AP (0 = default) */
++  volatile uint32 data_words[16];
++} rf_sandbox_ctrl_block_type;
++
++extern volatile rf_sandbox_ctrl_block_type rf_sandbox_ctrl;
++extern volatile uint32 rf_sandbox_task_counter;
++extern volatile uint32 rf_sandbox_task_started;
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* RF_SANDBOX_TASK_H */
+--- a/rfa/rf/task/common/src/rf_sandbox_task.c
++++ b/rfa/rf/task/common/src/rf_sandbox_task.c
+@@ -0,0 +1,146 @@
++#include "rex.h"
++#include "rcinit.h"
++#include "qurt.h"
++#include "timer.h"
++#include "rf_sandbox_task.h"
++
++/* Address table published in IMEM so that host tools do not depend on build-specific symbol addresses.
++ * IMEM 0x08600000 is readable and writable from the application processor through /dev/mem (the modem's own mapping
++ * of IMEM is made writable in cust_config.xml). */
++#define RF_SB_IMEM_TABLE  ((volatile uint32 *)0x08600F00U)
++#define RF_SB_IMEM_MAGIC  0x52464253U   /* "SBFR" in memory (little endian) */
++#define RF_SB_IMEM_TABLE_VERSION 1U
++
++/* Words of the IMEM table */
++enum
++{
++  RF_SB_IMEM_MAGIC_WORD   = 0,
++  RF_SB_IMEM_VERSION_WORD = 1,
++  RF_SB_IMEM_CTRL_ADDR    = 2,   /* &rf_sandbox_ctrl */
++  RF_SB_IMEM_SCRATCH_ADDR = 3,   /* &rf_sandbox_dyn_scratch */
++  RF_SB_IMEM_COUNTER_ADDR = 4,   /* &rf_sandbox_task_counter */
++  RF_SB_IMEM_STARTED_ADDR = 5    /* &rf_sandbox_task_started */
++};
++
++#define RF_SANDBOX_SCRATCH_BYTES 0x800U
++#define RF_SANDBOX_TIMER_SIG     0x1
++
++/* declared here because the QuRT headers of this source tree do not declare it */
++extern void qurt_mem_cache_cleaninvall(void);
++
++volatile uint32 rf_sandbox_task_counter = 0;
++volatile uint32 rf_sandbox_task_started = 0;
++
++volatile rf_sandbox_ctrl_block_type rf_sandbox_ctrl =
++{
++  RF_SANDBOX_CTRL_MAGIC,          /* magic */
++  0,                              /* seq */
++  0,                              /* ack */
++  RF_SANDBOX_CMD_NONE,            /* cmd */
++  0,                              /* arg0 */
++  0,                              /* arg1 */
++  RF_SANDBOX_STATUS_IDLE,         /* status */
++  0,                              /* result */
++  0,                              /* reserved */
++  RF_SANDBOX_DEFAULT_PERIOD_MS,   /* period_ms */
++  {0}                             /* data_words */
++};
++
++/* Scratch area for code written by the AP. It must be inside an executable segment: a data or bss
++ * address is not executable and a fetch from it faults. It sits in .text and nothing else uses it. */
++__attribute__((section(".text"), aligned(8)))
++unsigned char rf_sandbox_dyn_scratch[RF_SANDBOX_SCRATCH_BYTES];
++
++rex_tcb_type rf_sandbox_tcb;
++
++/* The task wakes up through a NON-DEFERRABLE timer. rex_sleep() uses a deferrable timer: while the modem is idle
++ * and sleeping it only fires when something else wakes the DSP, which can take tens of seconds, and every host
++ * command would wait that long. A timer in timer_non_defer_group wakes the DSP at the requested time. */
++static timer_type rf_sandbox_timer;
++static qurt_anysignal_t rf_sandbox_signal;
++
++/* Runs one command of the control block; sets status and result. */
++static void rf_sandbox_run_command(void)
++{
++  typedef uint32 (*dyn_fn_t)(uint32, uint32, uint32);
++  uintptr_t fn_va, lo, hi;
++
++  switch (rf_sandbox_ctrl.cmd)
++  {
++    case RF_SANDBOX_CMD_NONE:
++      rf_sandbox_ctrl.status = RF_SANDBOX_STATUS_DONE;
++      break;
++
++    case RF_SANDBOX_CMD_CALL_FN:
++      /* Call code that the AP wrote into rf_sandbox_dyn_scratch. Only addresses inside that area
++       * are accepted, so nothing else in the image can be called through this command. */
++      fn_va = (uintptr_t)rf_sandbox_ctrl.arg0;
++      lo = (uintptr_t)&rf_sandbox_dyn_scratch[0];
++      hi = lo + sizeof(rf_sandbox_dyn_scratch);
++      if ((fn_va < lo) || (fn_va >= hi))
++      {
++        rf_sandbox_ctrl.result = RF_SANDBOX_RESULT_BAD_ADDR;
++        rf_sandbox_ctrl.status = RF_SANDBOX_STATUS_DONE;
++        break;
++      }
++      qurt_mem_cache_cleaninvall();   /* instruction cache must not hold stale code */
++      rf_sandbox_ctrl.result = ((dyn_fn_t)fn_va)(rf_sandbox_ctrl.arg1,
++                                                 rf_sandbox_ctrl.data_words[0],
++                                                 rf_sandbox_ctrl.data_words[1]);
++      rf_sandbox_ctrl.status = RF_SANDBOX_STATUS_DONE;
++      break;
++
++    default:
++      rf_sandbox_ctrl.result = rf_sandbox_ctrl.cmd;
++      rf_sandbox_ctrl.status = RF_SANDBOX_STATUS_BAD_CMD;
++      break;
++  }
++}
++
++void rf_sandbox_task(uint32 ignored)
++{
++  uint32 last_seq = 0;
++
++  rcinit_handshake_startup();
++  rf_sandbox_task_started = 1;
++
++  qurt_anysignal_init(&rf_sandbox_signal);
++  timer_def_osal(&rf_sandbox_timer, &timer_non_defer_group, TIMER_NATIVE_OS_SIGNAL_TYPE,
++                 &rf_sandbox_signal, RF_SANDBOX_TIMER_SIG);
++
++  RF_SB_IMEM_TABLE[RF_SB_IMEM_MAGIC_WORD]   = RF_SB_IMEM_MAGIC;
++  RF_SB_IMEM_TABLE[RF_SB_IMEM_VERSION_WORD] = RF_SB_IMEM_TABLE_VERSION;
++  RF_SB_IMEM_TABLE[RF_SB_IMEM_CTRL_ADDR]    = (uint32)&rf_sandbox_ctrl;
++  RF_SB_IMEM_TABLE[RF_SB_IMEM_SCRATCH_ADDR] = (uint32)&rf_sandbox_dyn_scratch;
++  RF_SB_IMEM_TABLE[RF_SB_IMEM_COUNTER_ADDR] = (uint32)&rf_sandbox_task_counter;
++  RF_SB_IMEM_TABLE[RF_SB_IMEM_STARTED_ADDR] = (uint32)&rf_sandbox_task_started;
++
++  for (;;)
++  {
++    uint32 period;
++
++    /* The AP writes the control block and the scratch code straight into DDR. Without cache maintenance
++     * the DSP's view of them lags by tens of seconds, so clean and invalidate at the top of the loop. */
++    qurt_mem_cache_cleaninvall();
++
++    if (rf_sandbox_ctrl.seq != last_seq)
++    {
++      last_seq = rf_sandbox_ctrl.seq;
++      rf_sandbox_ctrl.status = RF_SANDBOX_STATUS_IDLE;
++      rf_sandbox_ctrl.result = 0;
++      rf_sandbox_run_command();
++      rf_sandbox_ctrl.ack = last_seq;
++      qurt_mem_cache_cleaninvall();   /* push the result out to DDR */
++    }
++
++    rf_sandbox_task_counter++;
++
++    period = rf_sandbox_ctrl.period_ms;
++    if (period == 0U) period = RF_SANDBOX_DEFAULT_PERIOD_MS;
++    qurt_anysignal_clear(&rf_sandbox_signal, RF_SANDBOX_TIMER_SIG);
++    timer_set(&rf_sandbox_timer, period, 0, T_MSEC);
++    qurt_anysignal_wait(&rf_sandbox_signal, RF_SANDBOX_TIMER_SIG);
++  }
++
++  NOTUSED(ignored);
++}

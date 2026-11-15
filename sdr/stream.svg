@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 300" width="980" height="300" font-family="DejaVu Sans, Arial, sans-serif" font-size="13">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333"/>
+    </marker>
+    <marker id="c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b5651d"/>
+    </marker>
+  </defs>
+  <rect width="980" height="300" fill="#ffffff"/>
+
+  <!-- phone -->
+  <rect x="12" y="12" width="560" height="276" rx="12" fill="#fafafa" stroke="#999"/>
+  <text x="26" y="36" font-size="15" font-weight="bold" fill="#555">Phone</text>
+
+  <rect x="30" y="60" width="150" height="70" rx="8" fill="#e6f5e6" stroke="#4a9a4a" stroke-width="1.5"/>
+  <text x="105" y="88" text-anchor="middle" font-weight="bold">modem DSP</text>
+  <text x="105" y="108" text-anchor="middle" font-size="12" fill="#333">copies samples (DMA)</text>
+
+  <rect x="215" y="60" width="140" height="70" rx="8" fill="#e6f5e6" stroke="#4a9a4a" stroke-width="1.5"/>
+  <text x="285" y="88" text-anchor="middle" font-weight="bold">ring buffer</text>
+  <text x="285" y="108" text-anchor="middle" font-size="12" fill="#333">in RAM</text>
+
+  <rect x="390" y="60" width="160" height="70" rx="8" fill="#fde8ec" stroke="#c0485e" stroke-width="1.8"/>
+  <text x="470" y="88" text-anchor="middle" font-weight="bold">sample_server</text>
+  <text x="470" y="108" text-anchor="middle" font-size="12" fill="#333">sends the samples</text>
+
+  <rect x="390" y="190" width="160" height="70" rx="8" fill="#fde8ec" stroke="#c0485e" stroke-width="1.8"/>
+  <text x="470" y="218" text-anchor="middle" font-weight="bold">sdrd</text>
+  <text x="470" y="238" text-anchor="middle" font-size="12" fill="#333">sets up the modem</text>
+
+  <path d="M180,95 L213,95" stroke="#333" stroke-width="2" fill="none" marker-end="url(#a)"/>
+  <path d="M355,95 L388,95" stroke="#333" stroke-width="2" fill="none" marker-end="url(#a)"/>
+  <path d="M390,225 L105,225 L105,132" stroke="#b5651d" stroke-width="1.6" stroke-dasharray="6 4" fill="none" marker-end="url(#c)"/>
+  <text x="200" y="245" font-size="12" fill="#b5651d">tuning, gain, filter, rate</text>
+
+  <!-- PC -->
+  <rect x="620" y="12" width="348" height="276" rx="12" fill="#fafafa" stroke="#999"/>
+  <text x="634" y="36" font-size="15" font-weight="bold" fill="#555">Your PC</text>
+
+  <rect x="640" y="60" width="150" height="200" rx="8" fill="#fde8ec" stroke="#c0485e" stroke-width="1.8"/>
+  <text x="715" y="140" text-anchor="middle" font-weight="bold">SoapySDR</text>
+  <text x="715" y="158" text-anchor="middle" font-weight="bold">driver</text>
+  <text x="715" y="180" text-anchor="middle" font-size="12" fill="#333">driver=qcom</text>
+
+  <rect x="820" y="60" width="130" height="200" rx="8" fill="#e3f0fb" stroke="#4a7fb0" stroke-width="1.5"/>
+  <text x="885" y="148" text-anchor="middle" font-weight="bold">SDR++ or any</text>
+  <text x="885" y="166" text-anchor="middle" font-weight="bold">SoapySDR app</text>
+
+  <path d="M550,95 L638,95" stroke="#333" stroke-width="2" fill="none" marker-end="url(#a)"/>
+  <text x="594" y="86" text-anchor="middle" font-size="12">samples</text>
+  <text x="594" y="114" text-anchor="middle" font-size="11" fill="#555">TCP 5700</text>
+  <path d="M638,225 L552,225" stroke="#b5651d" stroke-width="1.6" stroke-dasharray="6 4" fill="none" marker-end="url(#c)"/>
+  <text x="594" y="216" text-anchor="middle" font-size="12" fill="#b5651d">control</text>
+  <text x="594" y="244" text-anchor="middle" font-size="11" fill="#555">TCP 5701</text>
+  <path d="M790,160 L818,160" stroke="#333" stroke-width="2" fill="none" marker-end="url(#a)"/>
+
+</svg>

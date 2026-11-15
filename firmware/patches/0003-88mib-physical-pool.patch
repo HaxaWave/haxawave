@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-3.0-only
+# Applies to the lines this patch adds. The context and the removed lines belong to their owners
+# (Qualcomm modem_proc sources).
+#
+# Physical memory pool of 88 MiB
+#
+# Without Q6ZIP compression the image needs more memory: the physical pool grows to 88 MiB
+# (0x05800000), which matches the 88 MiB modem region of the kernel device tree in ../pmos.
+--- a/config/8916/ms/cust_config.xml
++++ b/config/8916/ms/cust_config.xml
+@@ -64 +64 @@
+-    <!-- 80 MB of physical pool-->
++    <!-- 88 MB of physical pool (matches the 88 MiB mpss region of the device tree) -->
+@@ -66 +66 @@
+-        <region base="0x86800000" size="0x05000000" />
++        <region base="0x86800000" size="0x05800000" />
+--- a/config/8936.genns/ms/cust_config.xml
++++ b/config/8936.genns/ms/cust_config.xml
+@@ -64 +64 @@
+-    <!-- 85 MB of physical pool-->
++    <!-- 88 MB of physical pool -->
+@@ -66 +66 @@
+-        <region base="0x86800000" size="0x05500000" />
++        <region base="0x86800000" size="0x05800000" />

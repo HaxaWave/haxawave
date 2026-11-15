@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-3.0-only
+cmake_minimum_required(VERSION 3.10)
+project(SoapyQcomModem CXX)
+set(CMAKE_CXX_STANDARD 14)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SOAPY REQUIRED SoapySDR)
+add_library(qcomSupport MODULE SoapyQcomModem.cpp)
+target_include_directories(qcomSupport PRIVATE ${SOAPY_INCLUDE_DIRS})
+target_link_libraries(qcomSupport PRIVATE ${SOAPY_LIBRARIES} pthread)
+target_compile_options(qcomSupport PRIVATE -O3 -Wall -Wextra)
+set_target_properties(qcomSupport PROPERTIES PREFIX "lib")
+install(TARGETS qcomSupport LIBRARY DESTINATION lib/SoapySDR/modules0.8)

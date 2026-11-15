@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-2.0-only
+# Patch against the Linux kernel (msm8916-mainline), a derivative work of the kernel: GPL-2.0-only.
+--- a/drivers/net/wwan/rpmsg_wwan_ctrl.c
++++ b/drivers/net/wwan/rpmsg_wwan_ctrl.c
+@@ -150,6 +150,11 @@
+ 	{ .name = "DATA5_CNTL", .driver_data = WWAN_PORT_QMI },
+ 	{ .name = "DATA4", .driver_data = WWAN_PORT_AT },
+ 	{ .name = "DATA1", .driver_data = WWAN_PORT_AT },
++	/*
++	 * The modem DIAG channel (the standard SMD/GLINK channel name on Qualcomm basebands) as a QCDM port. It gives
++	 * userspace /dev/wwan0qcdm0, used for the diagnostic and factory-test (FTM) commands.
++	 */
++	{ .name = "DIAG", .driver_data = WWAN_PORT_QCDM },
+ 	{},
+ };
+ MODULE_DEVICE_TABLE(rpmsg, rpmsg_wwan_ctrl_id_table);

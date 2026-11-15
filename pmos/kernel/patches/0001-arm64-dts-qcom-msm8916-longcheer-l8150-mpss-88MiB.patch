@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-2.0-only
+# Patch against the Linux kernel (msm8916-mainline), a derivative work of the kernel: GPL-2.0-only.
+--- a/arch/arm64/boot/dts/qcom/msm8916-longcheer-l8150.dts
++++ b/arch/arm64/boot/dts/qcom/msm8916-longcheer-l8150.dts
+@@ -44,8 +44,12 @@
+ 			no-map;
+ 		};
+ 
++		/*
++		 * 88 MiB instead of 80 MiB: custom modem firmware images can
++		 * span 0x5800000 bytes. Nothing is reserved above 0x93800000.
++		 */
+ 		mpss_mem: mpss@8e800000 {
+-			reg = <0x0 0x8e800000 0x0 0x5000000>;
++			reg = <0x0 0x8e800000 0x0 0x5800000>;
+ 			no-map;
+ 		};
+ 	};

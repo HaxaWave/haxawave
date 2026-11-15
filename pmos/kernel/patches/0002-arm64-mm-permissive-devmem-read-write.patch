@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-2.0-only
+# Patch against the Linux kernel (msm8916-mainline), a derivative work of the kernel: GPL-2.0-only.
+--- a/arch/arm64/include/asm/io.h
++++ b/arch/arm64/include/asm/io.h
+@@ -295,6 +295,12 @@
+ #define iowrite32be(v,p)	({ __iowmb(); __raw_writel((__force __u32)cpu_to_be32(v), p); })
+ #define iowrite64be(v,p)	({ __iowmb(); __raw_writeq((__force __u64)cpu_to_be64(v), p); })
+ 
++/* /dev/mem read()/write() on memory outside the linear map: see arch/arm64/mm/mmap.c */
++#define xlate_dev_mem_ptr xlate_dev_mem_ptr
++extern void *xlate_dev_mem_ptr(phys_addr_t phys);
++#define unxlate_dev_mem_ptr unxlate_dev_mem_ptr
++extern void unxlate_dev_mem_ptr(phys_addr_t phys, void *addr);
++
+ #include <asm-generic/io.h>
+ 
+ #define ioremap_cache ioremap_cache
+--- a/arch/arm64/mm/mmap.c
++++ b/arch/arm64/mm/mmap.c
+@@ -41,17 +41,36 @@
+ int valid_phys_addr_range(phys_addr_t addr, size_t size)
+ {
+ 	/*
+-	 * Check whether addr is covered by a memory region without the
+-	 * MEMBLOCK_NOMAP attribute, and whether that region covers the
+-	 * entire range. In theory, this could lead to false negatives
+-	 * if the range is covered by distinct but adjacent memory regions
+-	 * that only differ in other attributes. However, few of such
+-	 * attributes have been defined, and it is debatable whether it
+-	 * follows that /dev/mem read() calls should be able traverse
+-	 * such boundaries.
++	 * Allow read()/write() on /dev/mem for any physical range (IMEM, SMEM,
++	 * no-map reserved regions such as the modem carveout, MMIO), the same
++	 * access mmap() has with CONFIG_STRICT_DEVMEM=n. The stock check only
++	 * accepts RAM that is mapped in the linear map.
++	 * Accessing an address that nothing decodes may raise an SError.
+ 	 */
+-	return memblock_is_region_memory(addr, size) &&
+-	       memblock_is_map_memory(addr);
++	return !((addr + size) & ~PHYS_MASK);
++}
++
++/*
++ * read()/write() on /dev/mem access memory through the pointer returned here.
++ * The generic version is __va(), which only exists for memory in the linear
++ * map. Map everything else (IMEM, SMEM, no-map regions, MMIO) with ioremap_wc()
++ * (normal non-cacheable memory, so unaligned accesses work).
++ */
++void *xlate_dev_mem_ptr(phys_addr_t phys)
++{
++	void __iomem *p;
++
++	if (pfn_is_map_memory(__phys_to_pfn(phys)))
++		return __va(phys);
++
++	p = ioremap_wc(phys & PAGE_MASK, PAGE_SIZE);
++	return p ? (void __force *)p + offset_in_page(phys) : NULL;
++}
++
++void unxlate_dev_mem_ptr(phys_addr_t phys, void *addr)
++{
++	if (!pfn_is_map_memory(__phys_to_pfn(phys)))
++		iounmap((void __iomem *)((unsigned long)addr & PAGE_MASK));
+ }
+ 
+ /*

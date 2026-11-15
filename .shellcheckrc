@@ -1,0 +1,4 @@
+# shellcheck settings (uvx --from shellcheck-py shellcheck <script>)
+# SC1091: the configuration file sourced by the phone scripts exists only on the phone
+# SC2012: ls is used only to show a directory listing to the user
+disable=SC1091,SC2012

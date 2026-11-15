@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 760" width="1240" height="760" font-family="DejaVu Sans, Arial, sans-serif" font-size="13">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333"/>
+    </marker>
+    <marker id="arrc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b5651d"/>
+    </marker>
+  </defs>
+  <style>
+    .t { font-size: 18px; font-weight: bold; }
+    .h { font-weight: bold; font-size: 14px; }
+    .s { font-size: 12px; fill: #333; }
+    .area { font-size: 13px; font-weight: bold; fill: #555; }
+    .flow { stroke: #333; stroke-width: 2; fill: none; marker-end: url(#arr); }
+    .ctl { stroke: #b5651d; stroke-width: 1.6; fill: none; stroke-dasharray: 6 4; marker-end: url(#arrc); }
+    .ana { fill: #e3f0fb; stroke: #4a7fb0; stroke-width: 1.5; }
+    .dig { fill: #e6f5e6; stroke: #4a9a4a; stroke-width: 1.5; }
+    .sw  { fill: #fff4e0; stroke: #c08a2e; stroke-width: 1.5; }
+    .our { fill: #fde8ec; stroke: #c0485e; stroke-width: 1.8; }
+    .asm { fill: #f2f2f2; stroke: #888; stroke-width: 1.4; stroke-dasharray: 5 4; }
+  </style>
+
+  <rect width="1240" height="760" fill="#ffffff"/>
+  <text x="20" y="32" class="t">HaxaWave: receive path of the MSM8916 modem (current knowledge)</text>
+
+  <!-- areas -->
+  <rect x="12" y="52" width="370" height="250" rx="10" fill="none" stroke="#bbb" stroke-dasharray="4 4"/>
+  <text x="22" y="72" class="area">RF chips (analog)</text>
+  <rect x="398" y="52" width="830" height="430" rx="10" fill="none" stroke="#bbb" stroke-dasharray="4 4"/>
+  <text x="408" y="72" class="area">MSM8916: modem subsystem</text>
+  <rect x="12" y="500" width="1216" height="248" rx="10" fill="none" stroke="#bbb" stroke-dasharray="4 4"/>
+  <text x="22" y="520" class="area">Linux side and PC</text>
+
+  <!-- antenna -->
+  <path d="M40,100 L40,140 M28,100 L40,118 L52,100" stroke="#333" stroke-width="2" fill="none"/>
+  <text x="22" y="160" class="s">antenna</text>
+
+  <!-- RF front end -->
+  <rect x="70" y="90" width="140" height="92" rx="6" class="ana"/>
+  <text x="80" y="110" class="h">RF front end</text>
+  <text x="80" y="128" class="s">band filters, switches</text>
+  <text x="80" y="144" class="s">(some switched by</text>
+  <text x="80" y="158" class="s">GRFC pins)</text>
+  <text x="80" y="174" class="s">QFE2101, QFE2340</text>
+  <path d="M52,120 L68,120" class="flow"/>
+
+  <!-- WTR4905 -->
+  <rect x="226" y="82" width="148" height="132" rx="6" class="ana"/>
+  <text x="236" y="102" class="h">WTR4905</text>
+  <text x="236" y="120" class="s">LNA, gain steps</text>
+  <text x="236" y="136" class="s">mixer</text>
+  <text x="236" y="152" class="s">LO: PLL synthesizer</text>
+  <text x="236" y="168" class="s">baseband filter</text>
+  <text x="236" y="184" class="s">1.4 - 40 MHz</text>
+  <text x="236" y="204" class="s">analog I/Q out</text>
+  <path d="M210,136 L224,136" class="flow"/>
+
+  <!-- ADC -->
+  <rect x="414" y="92" width="110" height="80" rx="6" class="dig"/>
+  <text x="424" y="114" class="h">ADC</text>
+  <text x="424" y="132" class="s">115.2 or 72 MHz</text>
+  <text x="424" y="148" class="s">clock</text>
+  <path d="M374,136 L412,136" class="flow"/>
+
+  <!-- RXFE wideband -->
+  <rect x="540" y="82" width="200" height="132" rx="6" class="dig"/>
+  <text x="550" y="102" class="h">RXFE wideband block</text>
+  <text x="550" y="122" class="s">DC removal</text>
+  <text x="550" y="138" class="s">VSRC: fractional resampler</text>
+  <text x="550" y="154" class="s">(sets the sample rate)</text>
+  <text x="550" y="170" class="s">decimation filters</text>
+  <text x="550" y="186" class="s">I/Q mismatch correction</text>
+  <text x="550" y="202" class="s">notch filters</text>
+  <path d="M524,132 L538,132" class="flow"/>
+
+  <!-- RXFE narrowband -->
+  <rect x="756" y="82" width="200" height="132" rx="6" class="dig"/>
+  <text x="766" y="102" class="h">RXFE narrowband block</text>
+  <text x="766" y="122" class="s">decimation</text>
+  <text x="766" y="138" class="s">ICI channel filter</text>
+  <text x="766" y="154" class="s">rotator (frequency shift)</text>
+  <text x="766" y="170" class="s">digital gain</text>
+  <text x="766" y="190" class="h">writer</text>
+  <path d="M740,132 L754,132" class="flow"/>
+
+  <!-- sample memory pool -->
+  <rect x="972" y="82" width="240" height="132" rx="6" class="dig"/>
+  <text x="982" y="102" class="h">Sample memory pool (SRAM)</text>
+  <text x="982" y="122" class="s">ring of 25600 samples</text>
+  <text x="982" y="138" class="s">20-bit block floating point:</text>
+  <text x="982" y="154" class="s">8-bit I and Q mantissas,</text>
+  <text x="982" y="170" class="s">shared 4-bit exponent</text>
+  <text x="982" y="190" class="s">second writer: decimated</text>
+  <text x="982" y="204" class="s">"sample server" ring</text>
+  <path d="M956,132 L970,132" class="flow"/>
+
+  <!-- normal consumers (assumed) -->
+  <rect x="972" y="250" width="240" height="96" rx="6" class="asm"/>
+  <text x="982" y="270" class="h">Normal consumer (assumed)</text>
+  <text x="982" y="288" class="s">layer-1 firmware of the active</text>
+  <text x="982" y="304" class="s">RAT (LTE: lte_LL1) on Hexagon,</text>
+  <text x="982" y="320" class="s">FFT / demodulation on VPE</text>
+  <text x="982" y="336" class="s">vector engines; cell search</text>
+  <path d="M1092,214 L1092,248" stroke="#888" stroke-width="1.6" stroke-dasharray="5 4" fill="none" marker-end="url(#arr)"/>
+
+  <!-- Hexagon / QuRT software -->
+  <rect x="414" y="250" width="330" height="96" rx="6" class="sw"/>
+  <text x="424" y="270" class="h">Modem firmware on Hexagon (QuRT)</text>
+  <text x="424" y="288" class="s">FTM: factory test mode, RAT stacks stopped</text>
+  <text x="424" y="304" class="s">RF driver: picks one of ~60 register sets</text>
+  <text x="424" y="320" class="s">CCS: RF control sequencer, tuning scripts</text>
+  <text x="424" y="336" class="s">over the RFFE bus</text>
+
+  <!-- rf_sandbox + our program -->
+  <rect x="414" y="364" width="330" height="104" rx="6" class="our"/>
+  <text x="424" y="384" class="h">rf_sandbox task (patch)</text>
+  <text x="424" y="402" class="s">calls code from the AP in a 2 KiB scratch area</text>
+  <text x="424" y="424" class="h">HaxaWave DSP program (mcdma.c)</text>
+  <text x="424" y="442" class="s">follows the writer; per 1280-sample block</text>
+  <text x="424" y="458" class="s">starts an MCDMA copy to the DDR ring</text>
+
+  <!-- MCDMA -->
+  <rect x="772" y="364" width="184" height="104" rx="6" class="dig"/>
+  <text x="782" y="384" class="h">MCDMA</text>
+  <text x="782" y="402" class="s">modem DMA engine</text>
+  <text x="782" y="418" class="s">pool block -> DDR</text>
+  <path d="M1020,214 L1020,232 L866,232 L866,362" class="flow"/>
+  <path d="M744,416 L770,416" stroke="#c0485e" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+
+  <!-- DDR ring -->
+  <rect x="772" y="530" width="184" height="96" rx="6" class="dig"/>
+  <text x="782" y="550" class="h">DDR ring buffer</text>
+  <text x="782" y="568" class="s">records: 32-byte header</text>
+  <text x="782" y="584" class="s">(counter, timestamps)</text>
+  <text x="782" y="600" class="s">+ 1280 packed samples</text>
+  <path d="M864,468 L864,528" class="flow"/>
+
+  <!-- sample_server -->
+  <rect x="560" y="530" width="184" height="96" rx="6" class="our"/>
+  <text x="570" y="550" class="h">sample_server</text>
+  <text x="570" y="568" class="s">reads the DDR ring,</text>
+  <text x="570" y="584" class="s">sends records over TCP</text>
+  <text x="570" y="600" class="s">(port 5700)</text>
+  <path d="M772,578 L746,578" class="flow"/>
+
+  <!-- sdrd -->
+  <rect x="300" y="530" width="230" height="104" rx="6" class="our"/>
+  <text x="310" y="550" class="h">sdrd (port 5701)</text>
+  <text x="310" y="568" class="s">firmware switch, FTM over DIAG,</text>
+  <text x="310" y="584" class="s">tuning, gain, filter, sample rate,</text>
+  <text x="310" y="600" class="s">GRFC pins for band 8,</text>
+  <text x="310" y="616" class="s">loads and starts the DSP program</text>
+
+  <!-- PC -->
+  <rect x="560" y="654" width="396" height="80" rx="6" class="our"/>
+  <text x="570" y="674" class="h">PC: SoapySDR driver driver=qcom</text>
+  <text x="570" y="692" class="s">decodes the 20-bit samples, timestamps, digital fine tuning</text>
+  <text x="570" y="710" class="s">-> SDR++, any SoapySDR application</text>
+  <path d="M652,626 L652,652" class="flow"/>
+  <text x="660" y="644" class="s">USB network</text>
+
+  <!-- control paths -->
+  <path d="M414,300 L320,300 L320,216" class="ctl"/>
+  <text x="150" y="262" class="s" fill="#b5651d">RFFE: tuning, gain, filter</text>
+  <path d="M640,250 L640,216" class="ctl"/>
+  <text x="648" y="240" class="s" fill="#b5651d">register sets</text>
+  <path d="M350,528 L350,330 L412,330" class="ctl"/>
+  <text x="270" y="350" class="s" fill="#b5651d">DIAG (FTM)</text>
+  <path d="M390,528 L390,420 L412,420" class="ctl"/>
+  <text x="300" y="440" class="s" fill="#b5651d">code + call</text>
+  <path d="M530,640 L540,640 L540,700 L558,700" class="ctl"/>
+  <text x="456" y="724" class="s" fill="#b5651d">control (TCP)</text>
+
+  <!-- legend -->
+  <rect x="22" y="660" width="16" height="12" class="ana"/><text x="44" y="671" class="s">RF chips (analog)</text>
+  <rect x="22" y="680" width="16" height="12" class="dig"/><text x="44" y="691" class="s">silicon blocks (digital)</text>
+  <rect x="22" y="700" width="16" height="12" class="sw"/><text x="44" y="711" class="s">modem firmware</text>
+  <rect x="160" y="660" width="16" height="12" class="our"/><text x="182" y="671" class="s">HaxaWave</text>
+  <rect x="160" y="680" width="16" height="12" class="asm"/><text x="182" y="691" class="s">assumed</text>
+  <path d="M160,706 L196,706" class="ctl"/><text x="200" y="711" class="s">control</text>
+</svg>

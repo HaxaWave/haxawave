@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-3.0-only
+[Unit]
+Description=Do not wait for the UART to drain when the console is closed (removes a ~30 s stall on reboot)
+DefaultDependencies=no
+After=sysinit.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/sbin/tty_closing_wait.py /dev/ttyMSM0 65535
+
+[Install]
+WantedBy=multi-user.target

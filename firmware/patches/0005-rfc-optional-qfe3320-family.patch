@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-3.0-only
+# Applies to the lines this patch adds. The context and the removed lines belong to their owners
+# (Qualcomm modem_proc sources).
+#
+# RF card: front-end modules of the QFE3320 family are optional
+#
+# The china_v2 RF card lists the QFE3320 front-end family (QFE3320, QFE2550, generic ASM, QFE1550), which
+# some boards, among them the Wileyfox Swift, do not carry. Missing devices of that family no longer make
+# the creation of the common RF devices fail.
+--- a/rfa/rf/common/rf/rfc/src/rfc.cpp
++++ b/rfa/rf/common/rf/rfc/src/rfc.cpp
+@@ -804 +804,8 @@
+-	     (phy_devices_cfg[index].rf_device_id == TP_BUFFER)) )
++	     (phy_devices_cfg[index].rf_device_id == TP_BUFFER) ||
++	     /* Boards that use the china_v2 card but do not carry the QFE3320 front-end
++	        family: QFE3320, QFE2550, GEN_ASM and QFE1550 may be absent. Without this,
++	        create_cmn_rf_devices() fails and the radio is never initialised. */
++	     (phy_devices_cfg[index].rf_device_id == QFE3320) ||
++	     (phy_devices_cfg[index].rf_device_id == QFE2550) ||
++	     (phy_devices_cfg[index].rf_device_id == GEN_ASM) ||
++	     (phy_devices_cfg[index].rf_device_id == QFE1550)) )

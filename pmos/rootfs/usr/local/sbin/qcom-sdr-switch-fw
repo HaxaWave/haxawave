@@ -1,0 +1,73 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-3.0-only
+# qcom-sdr-switch-fw custom [force]|stock|status   (run as root)
+#
+#   custom  load the firmware image from FW_DIR (/etc/qcom-sdr/modem-fw.conf, default /var/lib/qcom-sdr/modem)
+#           into the modem: stop the modem remoteproc, replace the firmware files, start it again
+#           (nothing is done when the custom firmware is already running, e.g. loaded at boot by qcom-sdr-modem-fw.service;
+#           "custom force" restarts the modem anyway, to load a freshly installed image)
+#   stock   go back to the firmware from the modem partition
+#   status  show the modem state and which firmware is selected
+#
+# Only the tmpfs directory used by msm-firmware-loader is changed; nothing on flash is modified, and a reboot always
+# returns to the stock firmware (unless qcom-sdr-modem-fw.service is enabled).
+# Restart the modem at most once per boot if you can: after several restarts in a row it may end up in a crash loop;
+# if it does not come back, reboot the phone.
+set -eu
+
+DST=/run/msm-firmware-loader/target
+STOCK=/run/msm-firmware-loader/mnt/modem/image
+[ -r /etc/qcom-sdr/modem-fw.conf ] && . /etc/qcom-sdr/modem-fw.conf
+FW_DIR=${FW_DIR:-/var/lib/qcom-sdr/modem}
+
+RP=
+for r in /sys/class/remoteproc/*; do
+  [ "$(cat "$r/name" 2>/dev/null)" = "4080000.remoteproc" ] && RP=$r
+done
+[ -n "$RP" ] || { echo "modem remoteproc (4080000.remoteproc) not found" >&2; exit 1; }
+
+state() { cat "$RP/state"; }
+wait_state() {   # wait_state WANTED SECONDS
+  i=0
+  while [ "$(state)" != "$1" ]; do
+    i=$((i + 1)); [ "$i" -gt "$2" ] && { echo "timeout waiting for state '$1' (now '$(state)')" >&2; return 1; }
+    sleep 1
+  done
+}
+selected() {
+  if [ "$(readlink "$DST/modem.mdt" 2>/dev/null)" = "$STOCK/modem.mdt" ]; then echo stock; else echo custom; fi
+}
+
+case "${1:-status}" in
+  status)
+    echo "modem: $(state), firmware files: $(selected)"
+    ;;
+  custom)
+    [ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
+    [ -f "$FW_DIR/modem.mdt" ] || { echo "no firmware image in $FW_DIR (modem.mdt missing)" >&2; exit 1; }
+    if [ "$(state)" = running ] && [ "$(selected)" = custom ] && [ "${2:-}" != force ]; then
+      echo "custom firmware already running"; exit 0
+    fi
+    [ "$(state)" = running ] && { echo stop > "$RP/state"; wait_state offline 20; }
+    rm -f "$DST"/modem.b* "$DST"/modem.mdt "$DST"/modem.mbn
+    cp "$FW_DIR"/modem.* "$DST"/
+    ln -sf "$DST/modem.mdt" "$DST/modem.mbn"
+    echo start > "$RP/state"
+    wait_state running 30
+    echo "custom firmware running"
+    ;;
+  stock)
+    [ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
+    [ "$(state)" = running ] && { echo stop > "$RP/state"; wait_state offline 20; }
+    rm -f "$DST"/modem.b* "$DST"/modem.mdt "$DST"/modem.mbn
+    for f in "$STOCK"/modem.*; do ln -sf "$f" "$DST/$(basename "$f")"; done
+    ln -sf "$DST/modem.mdt" "$DST/modem.mbn"
+    echo start > "$RP/state"
+    wait_state running 30
+    echo "stock firmware running"
+    ;;
+  *)
+    echo "usage: $0 custom|stock|status" >&2; exit 2
+    ;;
+esac

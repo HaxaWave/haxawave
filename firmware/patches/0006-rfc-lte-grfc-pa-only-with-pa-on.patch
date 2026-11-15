@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-3.0-only
+# Applies to the lines this patch adds. The context and the removed lines belong to their owners
+# (Qualcomm modem_proc sources).
+#
+# LTE RF card: the generic GRFC power amplifier only for bands with a PA_ON signal
+#
+# For bands without a PA_ON signal the generic GRFC power amplifier is no longer added. Without that signal
+# its GRFC engine number is -1 (0xff), every GRFC write of the PA on/off path fails and the
+# "PA not detected" assertion stops the modem.
+--- a/rftech_lte/rf/rfc/src/rfc_lte.cpp
++++ b/rftech_lte/rf/rfc/src/rfc_lte.cpp
+@@ -1283,0 +1284,13 @@
++  /* Add the generic GRFC PA only for bands whose signal list has a PA_ON signal.
++     Without PA_ON the PA engine number is -1 (0xff), every GRFC write in the PA on/off
++     path fails and the PA-not-detected assertion in rflte_dm_update_pa_script fires. */
++  rfc_sig_cfg_type* pa_sigs = NULL;
++  boolean pa_on_present = FALSE;
++  if( (cfg->rx_tx == RFC_CONFIG_TX) && (rfc_data != NULL) )
++  {
++    rfc_data->sig_cfg_data_get(cfg, &pa_sigs);
++    if( (pa_sigs != NULL) && (rfc_common_get_grfc_engine_num(pa_sigs, RFC_PA_ON) >= 0) )
++    {
++      pa_on_present = TRUE;
++    }
++  }
+@@ -1286 +1299,2 @@
+-      && (rfc_data != NULL))
++      && (rfc_data != NULL)
++      && pa_on_present)

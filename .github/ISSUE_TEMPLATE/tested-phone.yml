@@ -1,0 +1,34 @@
+name: Tested on another phone
+description: Report that HaxaWave works (or does not) on a phone other than the Wileyfox Swift
+title: "[Phone] "
+labels: ["hardware report"]
+body:
+  - type: input
+    id: phone
+    attributes:
+      label: Phone model and board
+      placeholder: "e.g. Cherry Mobile One G1 / Longcheer L8150"
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Stock modem firmware version
+      description: The version of the modem image on the phone, if you know it.
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Works
+        - Partly works
+        - Does not work
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: What you did and what you saw
+      description: Steps, `dmesg` output, which frequencies you could receive.
+    validations:
+      required: true

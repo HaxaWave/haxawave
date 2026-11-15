@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-3.0-only
+# Applies to the lines this patch adds. The context and the removed lines belong to their owners
+# (Qualcomm modem_proc sources).
+#
+# No Q6ZIP: keep RF card code and data out of the reclaimed sections
+#
+# The linker lists of the stock build (dynrec.lst and the .lcs file) put the RF card code and data into the
+# dynamically reclaimed sections. They stay in the normal sections here. Together with an empty Q6ZIP list
+# (config/*/ms/compress.lst, written by build.sh) no modem code is compressed.
+--- a/build/ms/dynrec.lst
++++ b/build/ms/dynrec.lst
+@@ -100 +100 @@
+-*modem_proc/rfc_dimepm/rf_card/rfc_wtr4905_china_v2/?*:(.text .text.* .rodata .rodata.*)
++/* removed: RF card code/data stays in normal sections */
+@@ -105 +105 @@
+-*modem_proc/rfc_dimepm/rf_card/?*:(.text .text.* .rodata .rodata.*)
++/* removed: RF card code/data stays in normal sections */
+@@ -208 +208 @@
+-*modem_proc/rfc_dimepm/rf_card/rfc_wtr4905_china_v2/?*:(.data .data.*)
++/* removed: RF card code/data stays in normal sections */
+@@ -213 +213 @@
+-*modem_proc/rfc_dimepm/rf_card/?*:(.data .data.*)
++/* removed: RF card code/data stays in normal sections */
+--- a/config/8916/ms/8916_QuRT_MODEM_PROC.lcs
++++ b/config/8916/ms/8916_QuRT_MODEM_PROC.lcs
+@@ -175 +174,0 @@
+-     *modem_proc/rfc_dimepm/rf_card/rfc_wtr4905_china*:(.text .text.* .rodata .rodata.*)
+@@ -179 +177,0 @@
+-     *modem_proc/rfc_dimepm/rf_card/rfc_wtr4905_china*:(.data .data.*)

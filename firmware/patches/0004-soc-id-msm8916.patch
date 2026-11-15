@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-3.0-only
+# Applies to the lines this patch adds. The context and the removed lines belong to their owners
+# (Qualcomm modem_proc sources).
+#
+# SoC id of the MSM8916
+#
+# The device configuration of this build is selected by the SoC hardware version. The chip reports
+# 0x2000 (8192); the source drop has 8193.
+--- a/config/8936.genns/ms/image_cfg.xml
++++ b/config/8936.genns/ms/image_cfg.xml
+@@ -11 +11 @@
+-      8936_xml : 8193
++      8936_xml : 8192
