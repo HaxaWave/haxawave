@@ -85,7 +85,9 @@ Two kinds of tuning exist. An **LTE channel** makes the modem's test mode tune
 the receiver to a channel of one of the bands (it also starts a cell search
 there). **Free tuning** sends the receiver chip the register writes that the
 firmware itself sends when it tunes (`data/ccs_tune.bin`; the band 3 and band 20
-variants) with the oscillator words of the wanted frequency; above 2230 MHz the
+variants) with the oscillator words of the wanted frequency (computed by the
+firmware's own routine for the receiver chip when the image has it, by a formula
+otherwise; they are compared once, a difference is logged); above 2230 MHz the
 input-stage values of the band 1 table are patched into the script. Which one is
 used at a given frequency is decided by a table in `sdrd.cpp` (`ROUTES`): for
 every point of a 10 MHz grid all methods that can serve it were compared with a

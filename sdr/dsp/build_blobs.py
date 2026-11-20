@@ -18,12 +18,14 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PROGRAMS = [
-    ('reg_read', 'reg_read.s', []),
-    ('reg_write', 'reg_write.c', []),
-    ('mem_alloc', 'mem_alloc.s', []),
-    ('nv_bands', 'nv_bands.c', []),
-    ('ccs_replay', 'ccs_replay.s', []),
-    ('mcdma', 'mcdma.c', ['MC_QTAIL', 'MC_ENQ']),
+    ('reg_read', 'reg_read.s', [], False),
+    ('reg_write', 'reg_write.c', [], False),
+    ('mem_alloc', 'mem_alloc.s', [], False),
+    ('nv_bands', 'nv_bands.c', [], False),
+    ('ccs_replay', 'ccs_replay.s', [], False),
+    ('mcdma', 'mcdma.c', ['MC_QTAIL', 'MC_ENQ'], False),
+    # optional: left out when the firmware image has no such routine (the driver then uses its own formula)
+    ('pll_calc', 'pll_calc.c', [], True),
 ]
 SCRATCH_SYMBOL, GP_SYMBOL = 'rf_sandbox_dyn_scratch', '_SDA_BASE_'
 QTAIL_SYMBOL, ENQ_SYMBOL = '@MODEMFW_351565538', '@MODEMFW_344953589'
@@ -65,7 +67,7 @@ def main():
     blobs = []
     with tempfile.TemporaryDirectory() as td:
         td = Path(td)
-        for name, src, needs in PROGRAMS:
+        for name, src, needs, optional in PROGRAMS:
             o, elf, binf = td / (name + '.o'), td / (name + '.elf'), td / (name + '.bin')
             if src.endswith('.c'):
                 run(
@@ -88,6 +90,10 @@ def main():
                 run([hb / 'hexagon-as', '-mv5', '-o', o, HERE / src])
             undefined = [l.split()[-1] for l in run([hb / 'hexagon-nm', o]).splitlines() if re.match(r'^\s+U ', l)]
             defs = []
+            missing = [u for u in undefined if u not in sym]
+            if missing and optional:
+                print('%-10s skipped (%s is not in the firmware image)' % (name, missing[0][:40]))
+                continue
             for u in undefined:
                 if u not in sym:
                     sys.exit('%s: undefined symbol %s is not in the firmware image' % (name, u))

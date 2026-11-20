@@ -258,6 +258,13 @@ static bool load_blobs()
     free(b);
     return true;
 }
+static bool have_blob(const char* name)
+{
+    for (int i = 0; i < g_nblobs; i++)
+        if (!strcmp(g_blobs[i].name, name))
+            return true;
+    return false;
+}
 // Runs a DSP program; returns false on a protocol error. *result receives the program's return value.
 static bool dsp_call(const char* name, u32 a, u32 b, u32 c, u32* result, bool async_ = false)
 {
@@ -751,6 +758,81 @@ static void pll_words_formula(double lo_hz, int vco_mult, unsigned char w[5])
     w[4]     = (unsigned char)intf;
 }
 
+// The same words from the firmware's own routine (dsp/pll_calc.c): the chip driver's calc_pll_programming() for the receive
+// frequency in Hz. False when the image has no such routine or the call fails.
+static bool pll_words_firmware(double lo_hz, int vco_mult, unsigned char w[5])
+{
+    if (!have_blob("pll_calc"))
+        return false;
+    u32 lo4 = 0, hi2 = 0, f_hz = (u32)(lo_hz + 0.5);
+    if (!dsp_call("pll_calc", f_hz, (u32)vco_mult, 0, &lo4) ||
+        !dsp_call("pll_calc", f_hz, (u32)vco_mult | 0x80000000u, 0, &hi2))
+        return false;
+    w[0] = (unsigned char)lo4;
+    w[1] = (unsigned char)(lo4 >> 8);
+    w[2] = (unsigned char)(lo4 >> 16);
+    w[3] = (unsigned char)(lo4 >> 24);
+    w[4] = (unsigned char)hi2;
+    return true;
+}
+
+// The first time the words are needed, the firmware's routine is checked against the formula at a few frequencies and the
+// result is logged once. If they differ, the formula does not fit this chip or firmware, or the routine is called with
+// parameters that do not suit it: the log says so, and the firmware's words are used all the same. Returns false when
+// there is no usable routine (not in the image, or the call fails).
+static bool pll_check_firmware()
+{
+    static const struct {
+        double hz;
+        int    vco_mult;
+    } T[] = { { 790123456.0, 3 }, { 806e6, 3 }, { 960e6, 3 }, { 1250e6, 1 }, { 1842.6e6, 1 }, { 2300e6, 1 } };
+    if (!have_blob("pll_calc"))
+        return false;
+    int same = 0, n = (int)(sizeof T / sizeof T[0]);
+    for (int i = 0; i < n; i++) {
+        unsigned char fw[5], fm[5];
+        if (!pll_words_firmware(T[i].hz, T[i].vco_mult, fw)) {
+            logf_("firmware oscillator routine failed, using the formula");
+            return false;
+        }
+        pll_words_formula(T[i].hz, T[i].vco_mult, fm);
+        if (!memcmp(fw, fm, 5)) {
+            same++;
+            continue;
+        }
+        logf_("oscillator words for %.0f Hz: firmware %02x%02x%02x %02x%02x, formula %02x%02x%02x %02x%02x "
+              "(using the firmware's)",
+              T[i].hz,
+              fw[0],
+              fw[1],
+              fw[2],
+              fw[3],
+              fw[4],
+              fm[0],
+              fm[1],
+              fm[2],
+              fm[3],
+              fm[4]);
+    }
+    if (same == n)
+        logf_("oscillator words: the firmware routine agrees with the formula at %d frequencies", n);
+    return true;
+}
+
+// The words used for tuning: the firmware's, with the formula as the fallback.
+static void pll_words(double lo_hz, int vco_mult, unsigned char w[5])
+{
+    static int state = 0; // 0: not checked yet, 1: the firmware's routine is used, 2: the formula only
+    if (state == 0)
+        state = pll_check_firmware() ? 1 : 2;
+    if (state == 1) {
+        if (pll_words_firmware(lo_hz, vco_mult, w))
+            return;
+        logf_("firmware oscillator routine failed, using the formula");
+    }
+    pll_words_formula(lo_hz, vco_mult, w);
+}
+
 // Builds the event image (event table, headers, payloads) for a family and a receive frequency. Returns the number of
 // events, 0 on error.
 static int g_patched = 0;
@@ -831,7 +913,7 @@ static int build_replay(const FreeRange* R, double lo_hz, unsigned char* img, u3
     if (p_frac < 0)
         return 0;
     unsigned char w[5];
-    pll_words_formula(lo_hz, R->vco_mult, w);
+    pll_words(lo_hz, R->vco_mult, w);
     img[p_frac]     = w[0];
     img[p_frac + 1] = w[1];
     img[p_frac + 2] = w[2];
