@@ -29,6 +29,8 @@
 // ticks} and 1280 packed samples. Each sample is 20 bits: bits 0-7 Q mantissa, 8-15 I mantissa (signed), 16-19 shared
 // exponent e; value = mantissa * 2^(8-e), delivered as mantissa << (16-e) so that the whole mantissa is kept (digital
 // gain 2^8; exact for e >= 8, CS16 saturates below that).
+#include "pcfl_decode.h"
+
 #include <SoapySDR/Device.hpp>
 #include <SoapySDR/Errors.hpp>
 #include <SoapySDR/Formats.hpp>
@@ -151,19 +153,6 @@ double reply_value(const char* reply, const char* key, double def)
 {
     const char* p = strstr(reply, key);
     return p ? atof(p + strlen(key)) : def;
-}
-
-// Decodes sample k of a record payload.
-inline void pcfl_get(const uint8_t* p, size_t k, int32_t& i, int32_t& q)
-{
-    size_t   bit = k * 20;
-    uint64_t w;
-    memcpy(&w, p + (bit >> 3), 8);
-    uint32_t v  = (uint32_t)((w >> (bit & 7)) & 0xFFFFF);
-    int32_t  qq = (int8_t)(v & 0xFF), ii = (int8_t)((v >> 8) & 0xFF);
-    int      e = (int)((v >> 16) & 0xF);
-    i          = ii * (1 << (16 - e));
-    q          = qq * (1 << (16 - e));
 }
 
 } // namespace
@@ -575,10 +564,9 @@ private:
     {
         double hz = fc_ - lo_ - cfo_, a = -2.0 * M_PI * hz / fs_;
         pthread_mutex_lock(&m_);
-        new_step_re_ = (float)std::cos(a);
-        new_step_im_ = (float)std::sin(a);
-        nco_on_      = std::fabs(hz) > 0.5;
-        nco_dirty_   = true;
+        new_angle_ = a;
+        new_on_    = std::fabs(hz) > 0.5;
+        nco_dirty_ = true;
         pthread_mutex_unlock(&m_);
     }
 
@@ -699,14 +687,9 @@ private:
         size_t done = 0;
         pthread_mutex_lock(&m_);
         if (nco_dirty_) {
-            step_re_   = new_step_re_;
-            step_im_   = new_step_im_;
-            rot_re_    = 1.0f;
-            rot_im_    = 0.0f;
-            rot_n_     = 0;
+            nco_.set(new_angle_, new_on_);
             nco_dirty_ = false;
         }
-        const bool nco = nco_on_;
         while (done < n) {
             if (head_ == tail_) {
                 if (!running_) {
@@ -737,31 +720,28 @@ private:
             size_t         take  = std::min(n - done, SPR - cur_off_);
             uint64_t       saved = tail_;
             pthread_mutex_unlock(&m_);
-            for (size_t k = 0; k < take; k++) {
-                int32_t i, q;
-                pcfl_get(pay, cur_off_ + k, i, q);
-                float fi = (float)i, fq = (float)q;
-                if (nco) {
-                    float ri = fi * rot_re_ - fq * rot_im_, rq = fi * rot_im_ + fq * rot_re_;
-                    fi       = ri;
-                    fq       = rq;
-                    float nr = rot_re_ * step_re_ - rot_im_ * step_im_, ni = rot_re_ * step_im_ + rot_im_ * step_re_;
-                    rot_re_ = nr;
-                    rot_im_ = ni;
-                    if ((++rot_n_ & 1023u) == 0) {
-                        float m = 1.0f / std::sqrt(rot_re_ * rot_re_ + rot_im_ * rot_im_);
-                        rot_re_ *= m;
-                        rot_im_ *= m;
+            if (CF32) {
+                pcfl::decode_cf32(pay, cur_off_, take, (float*)out + 2 * done, &nco_);
+            } else {
+                for (size_t k = 0; k < take; k++) {
+                    float fi, fq;
+                    pcfl::get_one(pay, cur_off_ + k, fi, fq);
+                    if (nco_.on) {
+                        float rq       = fi * nco_.im + fq * nco_.re;
+                        fi             = fi * nco_.re - fq * nco_.im;
+                        fq             = rq;
+                        const float nr = nco_.re * nco_.step_re - nco_.im * nco_.step_im;
+                        const float ni = nco_.re * nco_.step_im + nco_.im * nco_.step_re;
+                        nco_.re        = nr;
+                        nco_.im        = ni;
+                        if ((++nco_.n & 1023u) == 0)
+                            nco_.renormalise();
                     }
-                }
-                if (CF32) {
-                    float* f              = (float*)out;
-                    f[2 * (done + k)]     = fi * (1.0f / 32768.0f);
-                    f[2 * (done + k) + 1] = fq * (1.0f / 32768.0f);
-                } else {
-                    int16_t* s            = (int16_t*)out;
-                    s[2 * (done + k)]     = (int16_t)std::max(-32768.f, std::min(32767.f, std::nearbyint(fi)));
-                    s[2 * (done + k) + 1] = (int16_t)std::max(-32768.f, std::min(32767.f, std::nearbyint(fq)));
+                    // get_one() scales to full scale 1.0; CS16 counts are 2^15 times that
+                    int16_t* sp        = (int16_t*)out;
+                    sp[2 * (done + k)] = (int16_t)std::max(-32768.f, std::min(32767.f, std::nearbyint(fi * 32768.0f)));
+                    sp[2 * (done + k) + 1] =
+                        (int16_t)std::max(-32768.f, std::min(32767.f, std::nearbyint(fq * 32768.0f)));
                 }
             }
             pthread_mutex_lock(&m_);
@@ -803,9 +783,10 @@ private:
     uint32_t  last_samp_u32_ = 0, last_tlat_u32_ = 0;
     bool      anchor_init_ = false, anchor_init_lat_ = false, have_time_ = false;
     // digital frequency shift
-    float    rot_re_ = 1.0f, rot_im_ = 0.0f, step_re_ = 1.0f, step_im_ = 0.0f, new_step_re_ = 1.0f, new_step_im_ = 0.0f;
-    uint32_t rot_n_  = 0;
-    bool     nco_on_ = false, nco_dirty_ = false;
+    pcfl::Nco nco_;
+    double    new_angle_ = 0.0;
+    bool      new_on_    = false;
+    bool      nco_dirty_ = false;
 };
 
 static SoapySDR::KwargsList findQcom(const SoapySDR::Kwargs& args)
