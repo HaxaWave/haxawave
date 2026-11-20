@@ -416,6 +416,34 @@ public:
         return got;
     }
 
+    // "discard" = "1": readStream() skips the samples it is asked for without decoding them (it still returns the count and
+    // reports gaps); "0" returns to normal. For callers that analyse only part of the stream.
+    void writeSetting(const std::string& key, const std::string& value) override
+    {
+        if (key == "discard")
+            discard_ = value == "1" || value == "true";
+        else
+            SoapySDR::Device::writeSetting(key, value);
+    }
+    std::string readSetting(const std::string& key) const override
+    {
+        if (key == "discard")
+            return discard_ ? "1" : "0";
+        return SoapySDR::Device::readSetting(key);
+    }
+    SoapySDR::ArgInfoList getSettingInfo(void) const override
+    {
+        SoapySDR::ArgInfoList l;
+        SoapySDR::ArgInfo     a;
+        a.key         = "discard";
+        a.name        = "Skip samples";
+        a.description = "readStream() skips the samples without decoding them";
+        a.type        = SoapySDR::ArgInfo::BOOL;
+        a.value       = "0";
+        l.push_back(a);
+        return l;
+    }
+
 private:
     bool start_stream()
     {
@@ -690,6 +718,7 @@ private:
             nco_.set(new_angle_, new_on_);
             nco_dirty_ = false;
         }
+        const bool discard = discard_;
         while (done < n) {
             if (head_ == tail_) {
                 if (!running_) {
@@ -720,7 +749,9 @@ private:
             size_t         take  = std::min(n - done, SPR - cur_off_);
             uint64_t       saved = tail_;
             pthread_mutex_unlock(&m_);
-            if (CF32) {
+            if (discard) {
+                // the caller does not want these samples: they are skipped without being decoded
+            } else if (CF32) {
                 pcfl::decode_cf32(pay, cur_off_, take, (float*)out + 2 * done, &nco_);
             } else {
                 for (size_t k = 0; k < take; k++) {
@@ -787,6 +818,9 @@ private:
     double    new_angle_ = 0.0;
     bool      new_on_    = false;
     bool      nco_dirty_ = false;
+
+    // set by the "discard" setting: readStream() skips the samples without decoding them
+    volatile bool discard_ = false;
 };
 
 static SoapySDR::KwargsList findQcom(const SoapySDR::Kwargs& args)
