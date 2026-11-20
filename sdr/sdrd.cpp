@@ -726,6 +726,31 @@ static bool        choose_route(double hz, u32* earfcn, double* lo, const FreeRa
     return false;
 }
 
+// The oscillator words of the receiver chip for a receive frequency: the five bytes that the tuning script carries for the
+// oscillator (the integer and the fractional part of its PLL).
+//
+// The oscillator runs at vco_mult times the receive frequency (1, or 3 for the band 20 script) and is set to
+//     oscillator = (N + frac / 2^24) * 38.4 MHz,
+// where 38.4 MHz is the reference of the chip. The words are
+//     w[0..2]  frac, 24 bits, most significant byte first
+//     w[3..4]  the integer field (N & 3) | ((N >> 2) << 3), 11 bits, most significant byte first
+// This is a formula that was worked out from the words in the stock tuning scripts; it does not come from the firmware.
+static void pll_words_formula(double lo_hz, int vco_mult, unsigned char w[5])
+{
+    double x = lo_hz * vco_mult / 38.4e6;
+    u32    N = (u32)x, frac = (u32)(std_round((x - N) * 16777216.0));
+    if (frac >= (1u << 24)) {
+        N++;
+        frac -= 1u << 24;
+    }
+    u32 intf = (N & 3) | ((N >> 2) << 3);
+    w[0]     = (unsigned char)(frac >> 16);
+    w[1]     = (unsigned char)(frac >> 8);
+    w[2]     = (unsigned char)frac;
+    w[3]     = (unsigned char)((intf >> 8) & 7);
+    w[4]     = (unsigned char)intf;
+}
+
 // Builds the event image (event table, headers, payloads) for a family and a receive frequency. Returns the number of
 // events, 0 on error.
 static int g_patched = 0;
@@ -805,18 +830,13 @@ static int build_replay(const FreeRange* R, double lo_hz, unsigned char* img, u3
     }
     if (p_frac < 0)
         return 0;
-    double x = lo_hz * R->vco_mult / 38.4e6;
-    u32    N = (u32)x, frac = (u32)(std_round((x - N) * 16777216.0));
-    if (frac >= (1u << 24)) {
-        N++;
-        frac -= 1u << 24;
-    }
-    u32 intf        = (N & 3) | ((N >> 2) << 3); // oscillator = (N + frac / 2^24) * 38.4 MHz
-    img[p_frac]     = (unsigned char)(frac >> 16);
-    img[p_frac + 1] = (unsigned char)(frac >> 8);
-    img[p_frac + 2] = (unsigned char)frac;
-    img[p_int]      = (unsigned char)((intf >> 8) & 7);
-    img[p_int + 1]  = (unsigned char)intf;
+    unsigned char w[5];
+    pll_words_formula(lo_hz, R->vco_mult, w);
+    img[p_frac]     = w[0];
+    img[p_frac + 1] = w[1];
+    img[p_frac + 2] = w[2];
+    img[p_int]      = w[3];
+    img[p_int + 1]  = w[4];
     return n;
 }
 
