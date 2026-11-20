@@ -45,7 +45,8 @@ static const uint32_t OVERWRITE_MARGIN = 5;   // the copied records may have bee
 static const double   DSP_WAIT_S       = 60;  // how long to wait for the DSP program to start
 static const uint64_t SEND_MAX         = 1u << 20; // bytes per send()
 static const int      SOCKET_SNDBUF    = 1 << 20;
-static const long     SENDER_IDLE_US = 50, READER_IDLE_US = 100, DSP_POLL_US = 1000;
+static const long READER_IDLE_US = 400, DSP_POLL_US = 1000; // a record arrives every ~170 us: a few at a time is fine
+static const long SENDER_WAIT_MS = 20; // longest wait of the sender for data (it is woken by the reader)
 
 // ---------------- settings (command line)
 static uint64_t g_log_pa = 0, g_ring_pa = 0; // physical addresses of the control block and of the ring
@@ -65,6 +66,8 @@ static uint8_t*           g_qbuf;             // byte queue between the reader a
 static uint64_t           g_qcap;             // a multiple of the record size
 static volatile uint64_t  g_q_head, g_q_tail; // head: written by the reader, tail: by the sender (byte counters)
 static volatile int       g_stop, g_done;
+static pthread_mutex_t    g_qmu = PTHREAD_MUTEX_INITIALIZER; // the reader wakes the sender through this
+static pthread_cond_t     g_qcv = PTHREAD_COND_INITIALIZER;
 static uint64_t           st_read, st_lost, st_bad, st_drop, st_sent;
 
 typedef uint8_t v16 __attribute__((vector_size(16), aligned(16)));
@@ -209,7 +212,15 @@ static void* sender(void*)
         if (t == h) {
             if (g_done)
                 break;
-            nap_us(SENDER_IDLE_US);
+            timespec dl;
+            clock_gettime(CLOCK_REALTIME, &dl);
+            dl.tv_nsec += SENDER_WAIT_MS * 1000000L;
+            dl.tv_sec += dl.tv_nsec / 1000000000L;
+            dl.tv_nsec %= 1000000000L;
+            pthread_mutex_lock(&g_qmu);
+            if (__atomic_load_n(&g_q_head, __ATOMIC_ACQUIRE) == t && !g_done && !g_stop)
+                pthread_cond_timedwait(&g_qcv, &g_qmu, &dl);
+            pthread_mutex_unlock(&g_qmu);
             continue;
         }
         uint64_t pos = t % g_qcap, len = h - t;
@@ -276,6 +287,9 @@ static void read_records()
             st_bad++;
         st_read += (uint64_t)n * S;
         __atomic_store_n(&g_q_head, h + (uint64_t)n * S, __ATOMIC_RELEASE);
+        pthread_mutex_lock(&g_qmu);
+        pthread_cond_signal(&g_qcv);
+        pthread_mutex_unlock(&g_qmu);
         k += n;
     }
 }
