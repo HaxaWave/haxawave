@@ -61,7 +61,9 @@
 namespace {
 
 const size_t REC_BYTES = 3232, HDR_BYTES = 32, SPR = 1280; // record size, header size, samples per record
-const size_t RING_RECS = 2048;                             // ~0.35 s of buffering
+const size_t RING_RECS     = 2048;                         // ~0.35 s of buffering
+const size_t WRITER_BLOCKS = 24;                           // blocks in the ring of the receiver's sample writer
+const int    PROTOCOL      = 5;                            // version of the "sdrd" service this driver talks to
 const double FS_DEF = 7.68e6, FS_MIN = 7.2e6, FS_MAX = 14.8e6, FS_GAP_LO = 11.25e6, FS_GAP_HI = 14.4e6,
              CLOCK_HZ    = 19.2e6;
 const char* DEFAULT_HOST = "172.16.42.1";
@@ -181,6 +183,17 @@ public:
             free(anchor_);
             throw std::runtime_error("qcom: no sdrd service at " + host_ + ":" + std::to_string(port_) +
                                      " (is the modem service running on the phone?)");
+        }
+        int version = 0;
+        sscanf(r, "OK sdrd %d", &version);
+        if (version != PROTOCOL) {
+            close(ctl_);
+            free(ring_);
+            free(gap_);
+            free(anchor_);
+            throw std::runtime_error("qcom: the service on the phone speaks protocol " + std::to_string(version) +
+                                     ", this driver needs " + std::to_string(PROTOCOL) +
+                                     " (install the driver and the phone service from the same build)");
         }
         lo_ = fc_ = reply_value(r, "fc=", 1879.0e6);
         want_fs_ = fs_ = reply_value(r, "fs=", FS_DEF);
@@ -636,8 +649,8 @@ private:
             anchor_init_lat_ = true;
         }
         last_tlat_u32_ = tlat;
-        long long rem = samp64_ % (long long)SPR, head_blk = (samp64_ / (long long)SPR) % 20,
-                  k = (head_blk - (long long)rblk + 20) % 20;
+        long long rem = samp64_ % (long long)SPR, head_blk = (samp64_ / (long long)SPR) % WRITER_BLOCKS,
+                  k = (head_blk - (long long)rblk + WRITER_BLOCKS) % WRITER_BLOCKS;
         // samples from the block start to the snapshot
         double dist = (double)(k * (long long)SPR + rem);
         return (long long)std::llround((double)tlat64_ * 1e9 / CLOCK_HZ - dist * 1e9 / fs_);
@@ -653,34 +666,16 @@ private:
             memcpy(&seq, rec, 4);
             memcpy(&late, rec + 16, 4);
             memcpy(&flg, rec + 20, 4);
-            bool gap               = have_last_ && seq != last_seq_ + 1;
-            have_last_             = true;
-            last_seq_              = seq;
-            bool bad               = gap || late > (uint32_t)(18.0 * SPR / fs_ * CLOCK_HZ) || (flg & 2u) || next_bad_;
+            bool gap   = have_last_ && seq != last_seq_ + 1;
+            have_last_ = true;
+            last_seq_  = seq;
+            bool bad =
+                gap || late > (uint32_t)((WRITER_BLOCKS - 2) * (double)SPR / fs_ * CLOCK_HZ) || (flg & 2u) || next_bad_;
             next_bad_              = false;
-            long long ts           = record_time(rec);
-            // About every 128 ms the copy program delivers a run of records that repeat earlier data; their times step
-            // back. They are dropped; the records after them continue the timeline without a gap. A forward step in
-            // time means that data is really missing.
+            long long       ts     = record_time(rec);
             const long long rec_ns = (long long)(1e9 * SPR / fs_);
-            if (have_prev_ts_ && ts < prev_ts_ + rec_ns / 2) {
-                // far longer than a repeated run: the time reference itself jumped, so resynchronise
-                if (++stale_run_ < 400) {
-                    stale_++;
-                    continue;
-                }
-                SoapySDR::logf(
-                    SOAPY_SDR_WARNING,
-                    "qcom: record times stuck behind the stream (ts %lld, last %lld, step %lld ns); resynchronising",
-                    ts,
-                    prev_ts_,
-                    rec_ns);
-                have_prev_ts_ = false;
-                bad           = true;
-            }
-            stale_run_ = 0;
-            if (have_prev_ts_ && ts > prev_ts_ + rec_ns * 3 / 2)
-                bad = true;
+            if (have_prev_ts_ && (ts < prev_ts_ + rec_ns / 2 || ts > prev_ts_ + rec_ns * 3 / 2))
+                bad = true; // the records are not consecutive in time
             prev_ts_      = ts;
             have_prev_ts_ = true;
             pthread_mutex_lock(&m_);
@@ -809,7 +804,6 @@ private:
     uint32_t                     last_seq_ = 0;
     // record time tracking
     long long samp64_ = 0, tlat64_ = 0, first_ts_ = 0, prev_ts_ = 0;
-    uint64_t  stale_ = 0, stale_run_ = 0;
     bool      have_prev_ts_  = false;
     uint32_t  last_samp_u32_ = 0, last_tlat_u32_ = 0;
     bool      anchor_init_ = false, anchor_init_lat_ = false, have_time_ = false;

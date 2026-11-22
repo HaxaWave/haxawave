@@ -7,7 +7,7 @@
 // (which serves the sample records over a second TCP connection). Samples never pass through this process.
 //
 // Control protocol (TCP, default port 5701): one text command per line, one reply line starting with "OK" or "ERR".
-//   HELLO        -> OK sdrd 4 fs=<Hz> fc=<Hz> port=<sample port> rec=3232
+//   HELLO        -> OK sdrd 5 fs=<Hz> fc=<Hz> port=<sample port> rec=3232
 //   BANDS        -> OK <band>:<low MHz>-<high MHz> ...
 //                   ranges that can be tuned (band 0 = free tuning outside the LTE bands)
 //   TUNE <Hz>    -> OK lo=<Hz> earfcn=<n> band=<b>
@@ -1407,7 +1407,7 @@ enum {
 static const u32 CB_MAGIC_CHS2 = 0x32534843u; // "CHS2"
 static const u32 CB_RUNNING    = 1;
 static const u32 NB0_HEAD_REG = 0xEC3680D4u, NB1_HEAD_REG = 0xEC3690D4u; // write positions of narrowband writers 0, 1
-static const u32 WRITER_RING_SAMPLES = 25600, WRITER_BLOCK_BYTES = 3200;
+static const u32 WRITER_RING_SAMPLES = 30720, WRITER_BLOCK_BYTES = 3200;
 static u32       log_word(int i)
 {
     return rd32pa(phys(g_block) + 4 * i);
@@ -1685,9 +1685,10 @@ static bool configure_stream()
 {
     if (!moving(NB1_HEAD_REG, "NB1"))
         return false;
-    static const u32 w[5][2] = { { 0xEC36D000u, 0x1a38c800u },
+    // writer 0 ring of 30720 samples (24 blocks, 61440 elements) at pool line 0x800; the length is 256 * 2^3 * 3 * 5
+    static const u32 w[5][2] = { { 0xEC36D000u, 0x1a38f000u },
                                  { 0xEC36D004u, 0x800u },
-                                 { 0xEC3680B4u, 0x42u },
+                                 { 0xEC3680B4u, 0x33u },
                                  { 0xEC36D028u, 0x13u },
                                  { 0xEC338008u, 0x80000800u } };
     for (int i = 0; i < 5; i++)
@@ -1950,7 +1951,7 @@ static void handle(int fd, char* line)
     if (!strcmp(line, "HELLO")) {
         const Band* b = band_of_earfcn(g_want_earfcn);
         reply(fd,
-              "OK sdrd 4 fs=%.0f fc=%.0f port=%d rec=%u",
+              "OK sdrd 5 fs=%.0f fc=%.0f port=%d rec=%u",
               g_cur_fs,
               g_want_free_hz > 0 ? g_want_free_hz : (b ? earfcn_to_hz(b, g_want_earfcn) : 0.0),
               g_data_port,

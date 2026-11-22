@@ -7,8 +7,8 @@
  * or the requested number of records has been copied.
  *
  * How it works
- *   The receiver's narrowband writer fills a ring of 25600 samples in the sample memory pool. The ring is split into
- *   20 blocks of 1280 samples (3200 bytes). The writer's head register changes about every millisecond; every change
+ *   The receiver's narrowband writer fills a ring of 30720 samples in the sample memory pool. The ring is split into
+ *   24 blocks of 1280 samples (3200 bytes). The writer's head register changes about every millisecond; every change
  *   tells how many samples were written since the previous one, and so how many blocks are complete. Each complete
  *   block is copied to the output ring in DDR with a DMA task of the modem's own driver (up to 6 tasks in flight),
  *   and a record header with a counter and timestamps is written in front of its samples.
@@ -60,11 +60,14 @@ enum {
 #define ERR_DMA_TIMEOUT 0x8000000Eu
 
 #define BLOCK_SAMPLES 1280u /* samples in a block */
-#define RING_BLOCKS 20u     /* blocks in the writer ring (20 * 1280 = 25600 samples) */
+#define RING_BLOCKS 24u     /* blocks in the writer ring (24 * 1280 = 30720 samples) */
 #define BLOCK_BYTES 3200u   /* a sample takes 2.5 bytes */
 #define RECORD_HEADER 32u
 #define RECORD_STRIDE (BLOCK_BYTES + RECORD_HEADER)
-#define RING_SAMPLES 25600u
+/* The writer restarts its address at the start of the ring every 983040 samples (1966080 at the higher sample rates),
+ * whatever the ring length. A ring length that divides this period keeps that restart invisible: with another length
+ * (e.g. 25600) the writer returns to the start of the ring early and the blocks it skips repeat old data. */
+#define RING_SAMPLES 30720u
 
 #define RATE_MUL_7_68MHZ 0x1999999Au /* Fs/19.2 MHz in Q30 for Fs = 7.68 MHz */
 #define MAX_IN_FLIGHT 6u             /* the driver queue has 8 slots: at most 6 in flight */

@@ -213,7 +213,7 @@ receiver front end (RXFE):
 3. **Narrowband block:** more decimation, a channel filter (ICI), a digital
    rotator (frequency shift), digital gain, and a **writer** that stores the
    samples.
-4. **Sample memory pool:** the writer fills a ring of 25600 samples in on-chip
+4. **Sample memory pool:** the writer fills a ring of 30720 samples in on-chip
    SRAM, as 20-bit block floating point (8-bit I and Q mantissas, shared 4-bit
    exponent). This ring is where HaxaWave picks the samples up.
 
