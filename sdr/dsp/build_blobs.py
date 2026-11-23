@@ -4,17 +4,34 @@
 """Builds the DSP programs of the sample stream into one file, dsp_blobs.bin, for the firmware image described by an
 `nm` listing.
 
-  build_blobs.py --tools HEXAGON_DIR --nm IMAGE.nm --out dsp_blobs.bin
+  build_blobs.py --tools HEXAGON_DIR --nm IMAGE.nm --fw-sha256sums PIL_DIR/SHA256SUMS --out dsp_blobs.bin
 
 HEXAGON_DIR is the Hexagon tools directory that contains gnu/bin (for example .../6.4.06.a).
-IMAGE.nm is `hexagon-nm -S <firmware .elf>`. Each program is linked at the address of the sandbox scratch area of that
-image, so the result is valid only for that exact firmware build.
+IMAGE.nm is `hexagon-nm -S <firmware .elf>`. Each program is linked at the addresses that `IMAGE.nm` gives for the
+firmware functions it calls and for the sandbox scratch area, so the result is valid only for that exact firmware
+build: a firmware image built from different sources (even a one-line change far from any of these addresses) can
+shift where they end up, and a stale dsp_blobs.bin then calls the wrong code instead of failing loudly (this one bit
+a real session: see ../README.md, "Keeping dsp_blobs.bin matched to the firmware").
 
-File format: "SDRB", u32 count, then per program {char name[16]; u32 entry; u32 size; u32 offset}, then the code
-bytes."""
+PIL_DIR/SHA256SUMS is the file `../../firmware/build.sh` writes next to the firmware image it just built
+(`sha256sum modem.* > SHA256SUMS`); its content fingerprints that exact build. sdrd checks the same file on the
+phone (where it is installed by install_firmware.sh) against the fingerprint recorded here, and refuses to run a
+blob built for different firmware instead of silently calling the wrong address.
+
+File format "SDR2": "SDR2", u32 count, u64 firmware fingerprint, then per program {char name[16]; u32 entry; u32
+size; u32 offset}, then the code bytes."""
 
 import argparse, re, struct, subprocess, sys, tempfile
 from pathlib import Path
+
+FNV1A64_OFFSET, FNV1A64_PRIME, MASK64 = 0xCBF29CE484222325, 0x100000001B3, (1 << 64) - 1
+
+
+def fnv1a64(data: bytes) -> int:
+    h = FNV1A64_OFFSET
+    for b in data:
+        h = ((h ^ b) * FNV1A64_PRIME) & MASK64
+    return h
 
 HERE = Path(__file__).resolve().parent
 PROGRAMS = [
@@ -55,10 +72,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--tools', required=True)
     ap.add_argument('--nm', required=True)
+    ap.add_argument('--fw-sha256sums', required=True, metavar='FILE', help='SHA256SUMS written by firmware/build.sh for the same image as --nm')
     ap.add_argument('--out', required=True)
     a = ap.parse_args()
     hb = Path(a.tools) / 'gnu/bin'
     sym = load_symbols(a.nm)
+    fingerprint = fnv1a64(Path(a.fw_sha256sums).read_bytes())
     for need in (SCRATCH_SYMBOL, GP_SYMBOL, QTAIL_SYMBOL, ENQ_SYMBOL):
         if need not in sym:
             sys.exit('symbol %s not found in %s' % (need, a.nm))
@@ -112,16 +131,16 @@ def main():
                 sys.exit('%s: entry symbol fn not found' % name)
             blobs.append((name, int(m.group(1), 16), code))
             print('%-10s entry 0x%08x  %4d bytes' % (name, blobs[-1][1], len(code)))
-    table = 8 + 28 * len(blobs)
+    table = 16 + 28 * len(blobs)
     off = table
-    out = bytearray(b'SDRB' + struct.pack('<I', len(blobs)))
+    out = bytearray(b'SDR2' + struct.pack('<IQ', len(blobs), fingerprint))
     for name, entry, code in blobs:
         out += name.encode().ljust(16, b'\0') + struct.pack('<III', entry, len(code), off)
         off += len(code)
     for _, _, code in blobs:
         out += code
     Path(a.out).write_bytes(bytes(out))
-    print('wrote %s (%d bytes), scratch 0x%x' % (a.out, len(out), scratch))
+    print('wrote %s (%d bytes), scratch 0x%x, firmware fingerprint %016x' % (a.out, len(out), scratch, fingerprint))
 
 
 if __name__ == '__main__':

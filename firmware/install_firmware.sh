@@ -19,14 +19,17 @@ CP=$(mktemp -u /tmp/qcom-sdr-ssh-XXXXXX)
 SSHO=(-o StrictHostKeyChecking=accept-new -o ControlMaster=auto -o ControlPath="$CP" -o ControlPersist=120)
 trap 'ssh "${SSHO[@]}" -O exit "$HOST" 2>/dev/null || true' EXIT
 
-FILES=("$PIL"/modem.*)
+FILES=("$PIL"/modem.* "$PIL"/SHA256SUMS)
 echo "copying ${#FILES[@]} files to $HOST (SSH password)"
-(cd "$PIL" && tar -cf - modem.*) | ssh "${SSHO[@]}" "$HOST" \
+(cd "$PIL" && tar -cf - modem.* SHA256SUMS) | ssh "${SSHO[@]}" "$HOST" \
   'rm -rf /tmp/sdr_fw && mkdir /tmp/sdr_fw && tar -C /tmp/sdr_fw -xf -'
 
+# SHA256SUMS is installed next to modem.mdt: ../sdr/sdrd checks it against the dsp_blobs.bin it was given, so a
+# dsp_blobs.bin built for different firmware is refused instead of silently calling the wrong address (see
+# ../sdr/README.md, "Keeping dsp_blobs.bin matched to the firmware").
 echo "installing into /var/lib/qcom-sdr/modem (sudo password)"
 ssh -t "${SSHO[@]}" "$HOST" "set -e
-sudo sh -c 'mkdir -p /var/lib/qcom-sdr/modem && rm -f /var/lib/qcom-sdr/modem/modem.* && cp /tmp/sdr_fw/modem.* /var/lib/qcom-sdr/modem/ && sync'
+sudo sh -c 'mkdir -p /var/lib/qcom-sdr/modem && rm -f /var/lib/qcom-sdr/modem/modem.* /var/lib/qcom-sdr/modem/SHA256SUMS && cp /tmp/sdr_fw/modem.* /tmp/sdr_fw/SHA256SUMS /var/lib/qcom-sdr/modem/ && sync'
 rm -rf /tmp/sdr_fw
 ls /var/lib/qcom-sdr/modem | wc -l | sed 's/^/files installed: /'
 $( [ "${SWITCH:-}" = 1 ] && echo "sudo qcom-sdr-switch-fw custom force" || echo "echo 'Switch with: sudo qcom-sdr-switch-fw custom   (back: sudo qcom-sdr-switch-fw stock)'" )"

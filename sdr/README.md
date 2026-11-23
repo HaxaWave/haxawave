@@ -122,7 +122,50 @@ your firmware build), `wtr_luts.bin` (receiver gain and filter tables read from
 the firmware image), `ccs_tune.bin` (the tuning scripts, copied from `data/`),
 `sdrd`, `sample_server` (static aarch64) and `libqcomSupport.so` (the host
 driver). The DSP programs must come from the same build as the firmware that
-runs on the phone.
+runs on the phone (see "Keeping dsp_blobs.bin matched to the firmware" below).
+
+## Keeping dsp_blobs.bin matched to the firmware
+
+`dsp_blobs.bin` is a handful of small Hexagon programs (`dsp/*.s`, `dsp/*.c`)
+that `sdrd` copies into the sandbox's scratch area and runs on the modem DSP.
+They call a few firmware functions directly (`modem_mem_alloc`, the receive
+chip's PLL calculator, the firmware's own DMA queue, ...), and on Hexagon a
+direct call has its target address encoded in the instruction itself: `build.sh`
+resolves these addresses once, from an `nm` listing of the exact firmware image
+you built (`dsp/build_blobs.py`), and bakes them into the blob.
+
+This makes `dsp_blobs.bin` valid only for that exact firmware build. A
+different build -- even one that changes something unrelated, far from any of
+these functions -- can shift where they end up in memory (the linker places
+everything after the change at a new address). If you install a `dsp_blobs.bin`
+that was built for different firmware than what is actually running, the blobs
+still run, just at the wrong place: calls land a few instructions into the
+right function (or into something else entirely) and the results are wrong in
+whatever way that happens to produce, typically "modem heap allocation failed"
+or a timeout with no other symptom. Nothing fails loudly on its own, because
+nothing on the DSP knows that the addresses are wrong.
+
+To catch this instead of debugging a confusing symptom, `build_blobs.py` also
+takes `--fw-sha256sums PIL_DIR/SHA256SUMS` (written by `../firmware/build.sh`
+next to the image it just built) and bakes a fingerprint of that file into
+`dsp_blobs.bin`'s header. `install_firmware.sh` installs the same `SHA256SUMS`
+next to `modem.mdt` on the phone. Before using the modem, `sdrd` reads that
+file and refuses to run any blob if its fingerprint does not match, with a
+clear message:
+
+```
+dsp_blobs.bin does not match the installed firmware (/var/lib/qcom-sdr/modem/SHA256SUMS):
+rebuild and reinstall both together (release/sdr/build.sh, then install.sh and install_firmware.sh)
+```
+
+Both `build.sh` steps already do this automatically (`firmware/build.sh` first,
+then `sdr/build.sh` with the same `WORKDIR`): the normal build/install sequence
+in `../firmware/README.md` and this file is always consistent. This check exists
+for everything else -- an ad hoc rebuild of just one patch, a firmware file
+swapped in by hand, an old `dsp_blobs.bin` left over from testing -- where it is
+easy to update the firmware and forget that `dsp_blobs.bin` depends on it too.
+`sdrd --fw-dir DIR` points the check at a different firmware install directory
+(default `/var/lib/qcom-sdr/modem`) if you ever need that.
 
 ## Install
 

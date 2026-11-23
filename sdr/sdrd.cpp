@@ -60,6 +60,7 @@ static double    std_round(double v)
 
 // ---------------- configuration
 static const char*  g_blobs_path  = "/usr/lib/sdr/dsp_blobs.bin";
+static const char*  g_fw_dir      = "/var/lib/qcom-sdr/modem"; // where the custom modem firmware is installed
 static const char*  g_server_path = "/usr/lib/sdr/sample_server";
 static int          g_ctl_port = 5701, g_data_port = 5700;
 static const u32    DEFAULT_EARFCN = 1940; // band 3, 1879.0 MHz
@@ -218,6 +219,17 @@ struct Blob {
 };
 static Blob g_blobs[8];
 static int  g_nblobs;
+// FNV-1a, 64-bit (must match dsp/build_blobs.py's fnv1a64()). Used only to tell a blob file apart from the firmware
+// build it was made for, not as a security boundary: a short, simple, well-known hash is enough for that.
+static u64 fnv1a64(const void* p, size_t n)
+{
+    const unsigned char* b = (const unsigned char*)p;
+    u64                  h = 0xcbf29ce484222325ull;
+    for (size_t i = 0; i < n; i++)
+        h = (h ^ b[i]) * 0x100000001b3ull;
+    return h;
+}
+static u64 g_fw_fingerprint = 0; // of dsp_blobs.bin: the firmware build it was made for (see check_fw_fingerprint())
 static bool load_blobs()
 {
     FILE* f = fopen(g_blobs_path, "rb");
@@ -236,12 +248,13 @@ static bool load_blobs()
     fclose(f);
     u32 cnt;
     memcpy(&cnt, b + 4, 4);
-    if (memcmp(b, "SDRB", 4) || cnt > 8) {
-        logf_("bad blob file");
+    if (memcmp(b, "SDR2", 4) || cnt > 8) {
+        logf_("bad blob file (wrong format or built by an older dsp/build_blobs.py: rebuild it)");
         return false;
     }
+    memcpy(&g_fw_fingerprint, b + 8, 8);
     for (u32 i = 0; i < cnt; i++) {
-        const unsigned char* e = b + 8 + 28 * i;
+        const unsigned char* e = b + 16 + 28 * i;
         Blob&                k = g_blobs[i];
         memcpy(k.name, e, 16);
         k.name[16] = 0;
@@ -256,6 +269,30 @@ static bool load_blobs()
     }
     g_nblobs = (int)cnt;
     free(b);
+    return true;
+}
+// Reads the phone's installed-firmware fingerprint (SHA256SUMS, installed next to modem.mdt by
+// install_firmware.sh) and compares it with the one dsp_blobs.bin was built for. A mismatch means dsp_blobs.bin's
+// DSP programs were linked against different addresses than the firmware actually running now -- running them
+// anyway silently calls the wrong code (see ../README.md, "Keeping dsp_blobs.bin matched to the firmware").
+static bool check_fw_fingerprint()
+{
+    char path[512];
+    snprintf(path, sizeof path, "%s/SHA256SUMS", g_fw_dir);
+    FILE* f = fopen(path, "rb");
+    if (!f) {
+        logf_("cannot open %s: skipping the dsp_blobs.bin / firmware match check", path);
+        return true;
+    }
+    unsigned char buf[8192];
+    size_t        n = fread(buf, 1, sizeof buf, f);
+    fclose(f);
+    if (fnv1a64(buf, n) != g_fw_fingerprint) {
+        logf_("dsp_blobs.bin does not match the installed firmware (%s): rebuild and reinstall both together "
+              "(release/sdr/build.sh, then install.sh and install_firmware.sh)",
+              path);
+        return false;
+    }
     return true;
 }
 static bool have_blob(const char* name)
@@ -1770,6 +1807,8 @@ static bool ensure_firmware()
     // nothing happened to the modem since the last start
     if (gen && gen == g_gen_ok && sandbox_init())
         return true;
+    if (!check_fw_fingerprint())
+        return false;
     bool live = sandbox_init() && sandbox_live();
     if (!live) {
         logf_("the custom firmware is not running: switching the modem to it");
@@ -2114,10 +2153,12 @@ int main(int argc, char** argv)
             g_idle_stock = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--sample-port") && i + 1 < argc)
             g_data_port = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--fw-dir") && i + 1 < argc)
+            g_fw_dir = argv[++i];
         else {
             fprintf(stderr,
                     "usage: sdrd [--blobs FILE] [--luts FILE] [--sample-server FILE] [--control-port N] [--sample-port "
-                    "N] [--idle-stock SECONDS] [--queue-mb N]\n");
+                    "N] [--idle-stock SECONDS] [--queue-mb N] [--fw-dir DIR]\n");
             return 2;
         }
     }

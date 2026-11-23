@@ -20,15 +20,17 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 W=$(readlink -f "${1:-${TMPDIR:-/tmp}/modem-fw-build}")
 ELF=$W/modem_proc/build/ms/M8916EAAAANVZQ0000.elf
+SHA256SUMS=$W/out/pil/SHA256SUMS
 HEX=${HEXAGON_TOOLS:-$W/hexagon/HEXAGON_Tools}
 [ -f "$ELF" ] || { echo "firmware image $ELF not found: run firmware/build.sh with the same WORKDIR first"; exit 1; }
+[ -f "$SHA256SUMS" ] || { echo "$SHA256SUMS not found: run firmware/build.sh with the same WORKDIR first (it writes this file last)"; exit 1; }
 [ -x "$HEX/6.4.06.a/gnu/bin/hexagon-nm" ] || { echo "Hexagon tools not found in $HEX/6.4.06.a"; exit 1; }
 OUT=$W/sdr; mkdir -p "$OUT"
 if docker info >/dev/null 2>&1; then DOCKER=(docker); else DOCKER=(sudo docker); fi
 
 echo "[1/3] DSP programs"
 "$HEX/6.4.06.a/gnu/bin/hexagon-nm" -S "$ELF" > "$OUT/image.nm"
-python3 "$HERE/dsp/build_blobs.py" --tools "$HEX/6.4.06.a" --nm "$OUT/image.nm" --out "$OUT/dsp_blobs.bin"
+python3 "$HERE/dsp/build_blobs.py" --tools "$HEX/6.4.06.a" --nm "$OUT/image.nm" --fw-sha256sums "$SHA256SUMS" --out "$OUT/dsp_blobs.bin"
 cp "$HERE/data/ccs_tune.bin" "$OUT/ccs_tune.bin"
 python3 "$HERE/dsp/build_luts.py" --nm "$OUT/image.nm" --elf "$ELF" --out "$OUT/wtr_luts.bin"
 
