@@ -1321,7 +1321,16 @@ static bool ns_up()
             return false;
         }
         unsigned char z[10] = {};
-        if (!ftm_ns(NS_START, z, sizeof z, 8, NS_OK, NS_ALREADY_DONE, r, 0))
+        // Right after the modem finishes registering on a real cell it can still be in the middle of an RRC
+        // procedure and refuse to enter the test mode (status NS_NOT_ALLOWED) for a few seconds; retry instead of
+        // giving up on the first refusal.
+        bool started = false;
+        for (int attempt = 0; attempt < 5 && !started; attempt++) {
+            if (attempt)
+                msleep(1000);
+            started = ftm_ns(NS_START, z, sizeof z, 8, NS_OK, NS_ALREADY_DONE, r, 0);
+        }
+        if (!started)
             return false;
         // first channel on band 3 (always available): initialises the receiver chip, which the tuning scripts need
         if (!ns501(DEFAULT_EARFCN))

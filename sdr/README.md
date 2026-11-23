@@ -234,6 +234,10 @@ late). Put them in an `ExecStart=` override (`systemctl edit sdr-sdrd`).
 - The modem heap is small and never freed. The service keeps its 3 MiB block
   across service restarts (`/run/sdr/block`); after a reboot of the phone it
   allocates a fresh block.
+- Starting a stream right after the modem finishes registering on a real cell
+  can take a few seconds longer than usual: the modem can briefly refuse to
+  enter the test mode while it is still in the middle of an RRC/registration
+  procedure, and `sdrd` retries for a few seconds instead of failing.
 - The spectrum is shaped by the analog filter selected with the bandwidth
   control; with the 1.4 MHz filter the passband is about 3 MHz wide.
 
