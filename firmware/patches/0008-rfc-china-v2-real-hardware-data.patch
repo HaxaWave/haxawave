@@ -1,0 +1,421 @@
+# SPDX-FileCopyrightText: 2026 Piotr Krysik
+# SPDX-License-Identifier: GPL-3.0-only
+# Applies to the lines this patch adds. The context and the removed lines belong to their owners
+# (Qualcomm modem_proc sources).
+#
+# RF card china_v2 (hw_id 151): match the card data to the hardware actually fitted
+#
+# The china_v2 RF card definition in this December 2014 SDK drop is for a board revision that
+# carries an ASM (QFE3320) front-end module and extra tuners. The Wileyfox Swift does not have
+# them (confirmed by a live RFFE bus scan and by visual inspection of the board), and the real
+# OEM firmware for this same phone uses a card-151 definition with only the 3 devices that are
+# actually fitted (WTR4905, QFE2101, QFE2340) plus the matching antenna-switching (GRFC) sequence.
+#
+# This replaces the stock device list, device count and GSM RX port with the ones the real OEM
+# firmware uses, and rewrites the GSM antenna-switching sequence (TIMING_ASM_CTL, which drives the
+# missing ASM) with the three RF_PATH_SEL GRFC lines the real firmware uses instead. Matching the
+# card's own data to the real hardware is more complete and more narrowly scoped than relaxing the
+# missing-device check in the RFC framework shared by every RFC card (rfc.cpp): it also fixes the
+# GSM receive sensitivity, which the framework-only fix leaves far below what the real firmware
+# reaches on the same board.
+--- a/rfc_dimepm/rf_card/rfc_wtr4905_china_v2/common/inc/rfc_wtr4905_china_v2_cmn_ag.h
++++ b/rfc_dimepm/rf_card/rfc_wtr4905_china_v2/common/inc/rfc_wtr4905_china_v2_cmn_ag.h
+@@ -56,6 +56,17 @@
+   RFC_WTR4905_CHINA_V2_RF_PATH_SEL_09,
+   RFC_WTR4905_CHINA_V2_RF_PATH_SEL_06,
+   RFC_WTR4905_CHINA_V2_RF_PATH_SEL_11,
++  /* GRFC/PA signals needed to switch the antenna and PA without the ASM
++     (QFE3320) front-end module, which this board does not carry. The
++     physical pin assignment (RFC_MSM_*) and the set of signals used per
++     GSM band come from the real OEM firmware for the same phone, decoded
++     from its rfc_wtr4905_china_v2_sig_info and per-band sig_cfg tables.
++     RFC_MSM_* is the platform-wide pin enum (physical SoC pinout), the
++     same across card SDK versions, so the values port over directly. */
++  RFC_WTR4905_CHINA_V2_RF_PATH_SEL_01,
++  RFC_WTR4905_CHINA_V2_RF_PATH_SEL_07,
++  RFC_WTR4905_CHINA_V2_PA_ON_19,
++  RFC_WTR4905_CHINA_V2_PA0_R0,
+   RFC_WTR4905_CHINA_V2_GPDATA0_0,
+   RFC_WTR4905_CHINA_V2_RFFE5_CLK,
+   RFC_WTR4905_CHINA_V2_RFFE5_DATA,
+--- a/rfc_dimepm/rf_card/rfc_wtr4905_china_v2/common/src/rfc_wtr4905_china_v2_cmn_ag.cpp
++++ b/rfc_dimepm/rf_card/rfc_wtr4905_china_v2/common/src/rfc_wtr4905_china_v2_cmn_ag.cpp
+@@ -111,6 +111,32 @@
+     RFC_INVALID_PARAM, /* ASSOCIATED_DAC */ 
+   }, /* END - Device: QFE2340 */ 
+ 
++/* Card data, not code: the china_v2 card definition matched to the
++   hardware actually fitted on this board (Wileyfox Swift / Longcheer
++   L8150).
++
++   The 5 physical devices removed below are not present on this board:
++     1. A live RFFE bus scan (USID 1..15, channel 0..4) only finds
++        WTR4905, QFE2101 and QFE2340; channels 1-3 are empty and channel 0
++        mixes present and absent devices, so the bus itself works and this
++        is a genuine absence, not a read failure.
++     2. Visual inspection of the board: QFE2340 is fitted, QFE3320 is not.
++     3. The real OEM firmware for this same phone reads the same hw_id=151
++        (NV rf_hw_config) and its card-151 device list has exactly these
++        3 devices plus the terminator (checked byte for byte: all 4
++        "china" family cards sit at the same relative offsets in both
++        images, and the one that hw_id=151 dispatches to lists WTR4905,
++        QFE2101, QFE2340, TERMINATOR).
++
++   The December 2014 SDK tree this image is built from still has an older
++   card-151 definition, for a board revision that carries the ASM and
++   tuner devices removed here. With the old definition,
++   create_cmn_rf_devices() marks them RFC_DEVICE_MISSING_FATAL, so
++   rfc_set_card() fails and rfm_enter_mode() never brings up the radio at
++   all. Matching the card's own device list to reality (as the real OEM
++   firmware already does) fixes this at the source, rather than relaxing
++   the missing-device check in the RFC framework shared by every card. */
++#if 0  /* physically absent on this board */
+   { /*Device: QFE3320_EPT */ 
+     QFE3320, /* PHY_DEVICE_NAME */ 
+     3, /* PHY_DEVICE_INSTANCE */ 
+@@ -195,6 +221,7 @@
+     FALSE, /* INIT */ 
+     RFC_INVALID_PARAM, /* ASSOCIATED_DAC */ 
+   }, /* END - Device: QFE3320_LB */ 
++#endif
+ 
+   { /*Device: RFDEVICE_INVALID */ 
+     RFDEVICE_INVALID, /* PHY_DEVICE_NAME */ 
+@@ -239,6 +266,13 @@
+     2, /* ASSOCIATED_PHY_DEVICE_INSTANCE */ 
+   }, /* END - Device: QFE2340 */ 
+ 
++/* The logical devices below point at the physical device instances
++   (3,4,5,6) removed above and must go with them:
++   rfc_intf::create_cmn_rf_devices() dereferences
++   phys_devices_array[phy_dev_instance].phy_dev_cfg->rf_device_id without a
++   NULL check, so a logical entry pointing at a removed physical instance
++   is a NULL dereference that hangs the modem during RF init. */
++#if 0  /* logical counterparts of the physically absent devices */
+   { /*Device: QFE3320_EPT */ 
+     RFDEVICE_PA, /* DEVICE_MODULE_TYPE */ 
+     QFE3320_EPT, /* DEVICE_MODULE_NAME */ 
+@@ -280,7 +314,9 @@
+     2, /* DEVICE_MODULE_TYPE_INSTANCE */ 
+     3, /* ASSOCIATED_PHY_DEVICE_INSTANCE */ 
+   }, /* END - Device: QFE3320_MB */ 
++#endif
+ 
++  /* QFE2340 (physical instance 2) is fitted on this board; kept. */
+   { /*Device: QFE2340 */ 
+     RFDEVICE_ASM, /* DEVICE_MODULE_TYPE */ 
+     QFE2340, /* DEVICE_MODULE_NAME */ 
+@@ -288,6 +324,7 @@
+     2, /* ASSOCIATED_PHY_DEVICE_INSTANCE */ 
+   }, /* END - Device: QFE2340 */ 
+ 
++#if 0  /* physical instances 4,5,6: physically absent */
+   { /*Device: ASM_SP4T */ 
+     RFDEVICE_ASM, /* DEVICE_MODULE_TYPE */ 
+     GEN_ASM /* ASM_SP4T */, /* DEVICE_MODULE_NAME */ 
+@@ -315,6 +352,7 @@
+     0, /* DEVICE_MODULE_TYPE_INSTANCE */ 
+     6, /* ASSOCIATED_PHY_DEVICE_INSTANCE */ 
+   }, /* END - Device: QFE2550 */ 
++#endif
+ 
+   { /*Device: TRX_HDET */ 
+     RFDEVICE_HDET, /* DEVICE_MODULE_TYPE */ 
+@@ -352,6 +390,11 @@
+   { RFC_MSM_RF_PATH_SEL_09                  , RFC_LOW, DAL_GPIO_PULL_DOWN, DAL_GPIO_2MA, (DALGpioSignalType)NULL }, /* RFC_WTR4905_CHINA_V2_RF_PATH_SEL_09 */ 
+   { RFC_MSM_RF_PATH_SEL_06                  , RFC_LOW, DAL_GPIO_PULL_DOWN, DAL_GPIO_2MA, (DALGpioSignalType)NULL }, /* RFC_WTR4905_CHINA_V2_RF_PATH_SEL_06 */ 
+   { RFC_MSM_RF_PATH_SEL_11                  , RFC_LOW, DAL_GPIO_PULL_DOWN, DAL_GPIO_2MA, (DALGpioSignalType)NULL }, /* RFC_WTR4905_CHINA_V2_RF_PATH_SEL_11 */ 
++  /* see the comment at the same names in the header */
++  { RFC_MSM_RF_PATH_SEL_01                  , RFC_LOW, DAL_GPIO_PULL_DOWN, DAL_GPIO_2MA, (DALGpioSignalType)NULL }, /* RFC_WTR4905_CHINA_V2_RF_PATH_SEL_01 */ 
++  { RFC_MSM_RF_PATH_SEL_07                  , RFC_LOW, DAL_GPIO_PULL_DOWN, DAL_GPIO_2MA, (DALGpioSignalType)NULL }, /* RFC_WTR4905_CHINA_V2_RF_PATH_SEL_07 */ 
++  { RFC_MSM_PA_ON_19                        , RFC_LOW, DAL_GPIO_PULL_DOWN, DAL_GPIO_2MA, (DALGpioSignalType)NULL }, /* RFC_WTR4905_CHINA_V2_PA_ON_19 */ 
++  { RFC_MSM_PA0_R0                          , RFC_LOW, DAL_GPIO_PULL_DOWN, DAL_GPIO_2MA, (DALGpioSignalType)NULL }, /* RFC_WTR4905_CHINA_V2_PA0_R0 */ 
+   { RFC_MSM_GPDATA0_0                       , RFC_CONFIG_ONLY, DAL_GPIO_NO_PULL, DAL_GPIO_2MA, (DALGpioSignalType)NULL }, /* RFC_WTR4905_CHINA_V2_GPDATA0_0 */ 
+   { RFC_MSM_RFFE5_CLK                       , RFC_CONFIG_ONLY, DAL_GPIO_PULL_DOWN, DAL_GPIO_2MA, (DALGpioSignalType)NULL }, /* RFC_WTR4905_CHINA_V2_RFFE5_CLK */ 
+   { RFC_MSM_RFFE5_DATA                      , RFC_CONFIG_ONLY, DAL_GPIO_PULL_DOWN, DAL_GPIO_2MA, (DALGpioSignalType)NULL }, /* RFC_WTR4905_CHINA_V2_RFFE5_DATA */ 
+--- a/rfc_dimepm/rf_card/rfc_wtr4905_china_v2/gsm/src/rfc_wtr4905_china_v2_gsm_config_data_ag.c
++++ b/rfc_dimepm/rf_card/rfc_wtr4905_china_v2/gsm/src/rfc_wtr4905_china_v2_gsm_config_data_ag.c
+@@ -112,7 +112,10 @@
+   0 /* Warning: Not Specified */,   /* ET Modem Chain */
+   0,   /* NV Container */
+   RFC_INVALID_PARAM /* Warning: Not Specified */,   /* Antenna */
+-  3,  /* NUM_DEVICES_TO_CONFIGURE */
++  /* 3 -> 1: slots 2 and 3 described the QFE3320_MB (ASM) and QFE2550
++     (tuner) devices, which this board does not carry. The real OEM
++     firmware also uses num_dev=1 for hw_id=151. */
++  1,  /* NUM_DEVICES_TO_CONFIGURE */
+   {
+     {
+       RFDEVICE_TRANSCEIVER,
+@@ -121,7 +124,11 @@
+       0,  /* PHY_PATH_NUM */
+       {
+         0 /*Warning: Not specified*/,  /* INTF_REV */
+-        (int)WTR4905_GSM_PRXLGY1_BAND850_PLB3,  /* PORT */
++        /* Non-SAWLESS -> SAWLESS: this board has no external SAW
++           filters or ASM, so the PRXLGY1_* port (which assumes an
++           external SAW) leads to an unconnected pin. The real OEM
++           firmware uses the SAWLESS port here (port=28 for g850). */
++        (int)WTR4905_GSM_PRXLGY1SAWLESS_BAND850_PLB3,  /* PORT */
+         ( RFDEVICE_PA_LUT_MAPPING_INVALID ),  /* RF_ASIC_BAND_PA_LUT_MAP */
+         FALSE,  /* TXAGC_LUT */
+         WTR4905_FBRX_ATTN_DEFAULT,  /* FBRX_ATTN_STATE */
+@@ -160,11 +167,17 @@
+ };
+ 
+ 
++/* Antenna-switching sequence taken from the real OEM firmware for the
++   same phone (hw_id=151). Replaces TIMING_ASM_CTL (which drives the
++   QFE3320 that is not fitted) with the three RF_PATH_SEL lines that
++   switch the antenna directly through GRFC. */
+ rfc_sig_info_type rf_card_wtr4905_china_v2_rx0_gsm_g850_sig_cfg = 
+ {
+   0x04200386,   /* Revision: v4.32.902 */
+   {
+-    { (int)RFC_WTR4905_CHINA_V2_TIMING_ASM_CTL,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -40 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_01,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_07,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_14,   { RFC_LOW,  -10 }, {RFC_LOW, 0 }  },
+     { (int)RFC_SIG_LIST_END,   { RFC_LOW, 0 }, {RFC_LOW, 0 } }
+   },
+ };
+@@ -177,7 +190,11 @@
+   0 /* Warning: Not Specified */,   /* ET Modem Chain */
+   0,   /* NV Container */
+   RFC_INVALID_PARAM /* Warning: Not Specified */,   /* Antenna */
+-  6,  /* NUM_DEVICES_TO_CONFIGURE */
++  /* 6 -> 1: slots 2..6 described PA/ASM/tuner devices (QFE3320_GSM,
++     QFE2550, ...) not fitted on this board. The real OEM firmware also
++     uses num_dev=1 for hw_id=151; the transceiver TX port already
++     matched the china_sawless_3m card. */
++  1,  /* NUM_DEVICES_TO_CONFIGURE */
+   {
+     {
+       RFDEVICE_TRANSCEIVER,
+@@ -267,10 +284,18 @@
+ };
+ 
+ 
++/* Adds RF_PATH_SEL_01/07/14 + PA_ON_19/PA0_R0 (antenna/PA switching
++   through GRFC instead of the ASM), as in the RX tables above. The
++   existing TIMING_* entries are left unchanged. */
+ rfc_sig_info_type rf_card_wtr4905_china_v2_tx0_gsm_g850_sig_cfg = 
+ {
+   0x04200386,   /* Revision: v4.32.902 */
+   {
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_01,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_07,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_14,   { RFC_LOW,  -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_PA_ON_19,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_PA0_R0,   { RFC_CONFIG_ONLY, 0 }, {RFC_LOW, 0 }  },
+     { (int)RFC_WTR4905_CHINA_V2_TIMING_PA_CTL,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -10 }, {RFC_LOW, 0 }  },
+     { (int)RFC_WTR4905_CHINA_V2_TIMING_PA_RANGE,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -3 }, {RFC_LOW, 0 }  },
+     { (int)RFC_WTR4905_CHINA_V2_TIMING_ASM_CTL,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -10 }, {RFC_LOW, 0 }  },
+@@ -291,7 +316,10 @@
+   0 /* Warning: Not Specified */,   /* ET Modem Chain */
+   0,   /* NV Container */
+   RFC_INVALID_PARAM /* Warning: Not Specified */,   /* Antenna */
+-  3,  /* NUM_DEVICES_TO_CONFIGURE */
++  /* 3 -> 1: slots 2 and 3 described the QFE3320_MB (ASM) and QFE2550
++     (tuner) devices, which this board does not carry. The real OEM
++     firmware also uses num_dev=1 for hw_id=151. */
++  1,  /* NUM_DEVICES_TO_CONFIGURE */
+   {
+     {
+       RFDEVICE_TRANSCEIVER,
+@@ -300,7 +328,8 @@
+       0,  /* PHY_PATH_NUM */
+       {
+         0 /*Warning: Not specified*/,  /* INTF_REV */
+-        (int)WTR4905_GSM_PRXLGY1_BAND900_PLB2,  /* PORT */
++        /* SAWLESS (the real OEM firmware uses port=29 for g900). */
++        (int)WTR4905_GSM_PRXLGY1SAWLESS_BAND900_PLB3,  /* PORT */
+         ( RFDEVICE_PA_LUT_MAPPING_INVALID ),  /* RF_ASIC_BAND_PA_LUT_MAP */
+         FALSE,  /* TXAGC_LUT */
+         WTR4905_FBRX_ATTN_DEFAULT,  /* FBRX_ATTN_STATE */
+@@ -339,11 +368,14 @@
+ };
+ 
+ 
++/* Same sequence as g850, see the comment there. */
+ rfc_sig_info_type rf_card_wtr4905_china_v2_rx0_gsm_g900_sig_cfg = 
+ {
+   0x04200386,   /* Revision: v4.32.902 */
+   {
+-    { (int)RFC_WTR4905_CHINA_V2_TIMING_ASM_CTL,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -40 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_01,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_07,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_14,   { RFC_LOW,  -10 }, {RFC_LOW, 0 }  },
+     { (int)RFC_SIG_LIST_END,   { RFC_LOW, 0 }, {RFC_LOW, 0 } }
+   },
+ };
+@@ -356,7 +388,11 @@
+   0 /* Warning: Not Specified */,   /* ET Modem Chain */
+   0,   /* NV Container */
+   RFC_INVALID_PARAM /* Warning: Not Specified */,   /* Antenna */
+-  6,  /* NUM_DEVICES_TO_CONFIGURE */
++  /* 6 -> 1: slots 2..6 described PA/ASM/tuner devices (QFE3320_GSM,
++     QFE2550, ...) not fitted on this board. The real OEM firmware also
++     uses num_dev=1 for hw_id=151; the transceiver TX port already
++     matched the china_sawless_3m card. */
++  1,  /* NUM_DEVICES_TO_CONFIGURE */
+   {
+     {
+       RFDEVICE_TRANSCEIVER,
+@@ -446,10 +482,16 @@
+ };
+ 
+ 
++/* Same as tx0_g850, see the comment there. */
+ rfc_sig_info_type rf_card_wtr4905_china_v2_tx0_gsm_g900_sig_cfg = 
+ {
+   0x04200386,   /* Revision: v4.32.902 */
+   {
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_01,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_07,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_14,   { RFC_LOW,  -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_PA_ON_19,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_PA0_R0,   { RFC_CONFIG_ONLY, 0 }, {RFC_LOW, 0 }  },
+     { (int)RFC_WTR4905_CHINA_V2_TIMING_PA_CTL,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -10 }, {RFC_LOW, 0 }  },
+     { (int)RFC_WTR4905_CHINA_V2_TIMING_PA_RANGE,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -3 }, {RFC_LOW, 0 }  },
+     { (int)RFC_WTR4905_CHINA_V2_TIMING_ASM_CTL,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -10 }, {RFC_LOW, 0 }  },
+@@ -470,7 +512,10 @@
+   0 /* Warning: Not Specified */,   /* ET Modem Chain */
+   0,   /* NV Container */
+   RFC_INVALID_PARAM /* Warning: Not Specified */,   /* Antenna */
+-  3,  /* NUM_DEVICES_TO_CONFIGURE */
++  /* 3 -> 1: slots 2 and 3 described the QFE3320_MB (ASM) and QFE2550
++     (tuner) devices, which this board does not carry. The real OEM
++     firmware also uses num_dev=1 for hw_id=151. */
++  1,  /* NUM_DEVICES_TO_CONFIGURE */
+   {
+     {
+       RFDEVICE_TRANSCEIVER,
+@@ -479,7 +524,8 @@
+       0,  /* PHY_PATH_NUM */
+       {
+         0 /*Warning: Not specified*/,  /* INTF_REV */
+-        (int)WTR4905_GSM_PRXLGY1_BAND1800_PMB3,  /* PORT */
++        /* SAWLESS (the real OEM firmware uses port=30 for g1800). */
++        (int)WTR4905_GSM_PRXLGY1SAWLESS_BAND1800_PMB1,  /* PORT */
+         ( RFDEVICE_PA_LUT_MAPPING_INVALID ),  /* RF_ASIC_BAND_PA_LUT_MAP */
+         FALSE,  /* TXAGC_LUT */
+         WTR4905_FBRX_ATTN_DEFAULT,  /* FBRX_ATTN_STATE */
+@@ -518,12 +564,15 @@
+ };
+ 
+ 
++/* Same as g850, except RF_PATH_SEL_07=LOW here (g850/g900 use HIGH);
++   read from the real OEM firmware per band. */
+ rfc_sig_info_type rf_card_wtr4905_china_v2_rx0_gsm_g1800_sig_cfg = 
+ {
+   0x04200386,   /* Revision: v4.32.902 */
+   {
+-    { (int)RFC_WTR4905_CHINA_V2_TIMING_ASM_CTL,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -40 }, {RFC_LOW, 0 }  },
+-    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_09,   { RFC_LOW, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_01,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_07,   { RFC_LOW,  -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_14,   { RFC_LOW,  -10 }, {RFC_LOW, 0 }  },
+     { (int)RFC_SIG_LIST_END,   { RFC_LOW, 0 }, {RFC_LOW, 0 } }
+   },
+ };
+@@ -536,7 +585,11 @@
+   0 /* Warning: Not Specified */,   /* ET Modem Chain */
+   0,   /* NV Container */
+   RFC_INVALID_PARAM /* Warning: Not Specified */,   /* Antenna */
+-  6,  /* NUM_DEVICES_TO_CONFIGURE */
++  /* 6 -> 1: slots 2..6 described PA/ASM/tuner devices (QFE3320_GSM,
++     QFE2550, ...) not fitted on this board. The real OEM firmware also
++     uses num_dev=1 for hw_id=151; the transceiver TX port already
++     matched the china_sawless_3m card. */
++  1,  /* NUM_DEVICES_TO_CONFIGURE */
+   {
+     {
+       RFDEVICE_TRANSCEIVER,
+@@ -626,10 +679,17 @@
+ };
+ 
+ 
++/* Same as tx0_g850, except RF_PATH_SEL_07=LOW and _14=HIGH here (g850/g900
++   differ); read from the real OEM firmware per band. */
+ rfc_sig_info_type rf_card_wtr4905_china_v2_tx0_gsm_g1800_sig_cfg = 
+ {
+   0x04200386,   /* Revision: v4.32.902 */
+   {
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_01,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_07,   { RFC_LOW,  -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_14,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_PA_ON_19,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_PA0_R0,   { RFC_CONFIG_ONLY, 0 }, {RFC_LOW, 0 }  },
+     { (int)RFC_WTR4905_CHINA_V2_TIMING_PA_CTL,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -10 }, {RFC_LOW, 0 }  },
+     { (int)RFC_WTR4905_CHINA_V2_TIMING_PA_RANGE,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -3 }, {RFC_LOW, 0 }  },
+     { (int)RFC_WTR4905_CHINA_V2_TIMING_ASM_CTL,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -10 }, {RFC_LOW, 0 }  },
+@@ -650,7 +710,10 @@
+   0 /* Warning: Not Specified */,   /* ET Modem Chain */
+   0,   /* NV Container */
+   RFC_INVALID_PARAM /* Warning: Not Specified */,   /* Antenna */
+-  3,  /* NUM_DEVICES_TO_CONFIGURE */
++  /* 3 -> 1: slots 2 and 3 described the QFE3320_MB (ASM) and QFE2550
++     (tuner) devices, which this board does not carry. The real OEM
++     firmware also uses num_dev=1 for hw_id=151. */
++  1,  /* NUM_DEVICES_TO_CONFIGURE */
+   {
+     {
+       RFDEVICE_TRANSCEIVER,
+@@ -659,7 +722,8 @@
+       0,  /* PHY_PATH_NUM */
+       {
+         0 /*Warning: Not specified*/,  /* INTF_REV */
+-        (int)WTR4905_GSM_PRXLGY1_BAND1900_PMB3,  /* PORT */
++        /* SAWLESS (the real OEM firmware uses port=31 for g1900). */
++        (int)WTR4905_GSM_PRXLGY1SAWLESS_BAND1900_PMB1,  /* PORT */
+         ( RFDEVICE_PA_LUT_MAPPING_INVALID ),  /* RF_ASIC_BAND_PA_LUT_MAP */
+         FALSE,  /* TXAGC_LUT */
+         WTR4905_FBRX_ATTN_DEFAULT,  /* FBRX_ATTN_STATE */
+@@ -698,12 +762,14 @@
+ };
+ 
+ 
++/* Same sequence as g1800, see the comment there. */
+ rfc_sig_info_type rf_card_wtr4905_china_v2_rx0_gsm_g1900_sig_cfg = 
+ {
+   0x04200386,   /* Revision: v4.32.902 */
+   {
+-    { (int)RFC_WTR4905_CHINA_V2_TIMING_ASM_CTL,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -40 }, {RFC_LOW, 0 }  },
+-    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_09,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_01,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_07,   { RFC_LOW,  -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_14,   { RFC_LOW,  -10 }, {RFC_LOW, 0 }  },
+     { (int)RFC_SIG_LIST_END,   { RFC_LOW, 0 }, {RFC_LOW, 0 } }
+   },
+ };
+@@ -716,7 +782,11 @@
+   0 /* Warning: Not Specified */,   /* ET Modem Chain */
+   0,   /* NV Container */
+   RFC_INVALID_PARAM /* Warning: Not Specified */,   /* Antenna */
+-  6,  /* NUM_DEVICES_TO_CONFIGURE */
++  /* 6 -> 1: slots 2..6 described PA/ASM/tuner devices (QFE3320_GSM,
++     QFE2550, ...) not fitted on this board. The real OEM firmware also
++     uses num_dev=1 for hw_id=151; the transceiver TX port already
++     matched the china_sawless_3m card. */
++  1,  /* NUM_DEVICES_TO_CONFIGURE */
+   {
+     {
+       RFDEVICE_TRANSCEIVER,
+@@ -806,10 +876,16 @@
+ };
+ 
+ 
++/* Same sequence as tx0_g1800, see the comment there. */
+ rfc_sig_info_type rf_card_wtr4905_china_v2_tx0_gsm_g1900_sig_cfg = 
+ {
+   0x04200386,   /* Revision: v4.32.902 */
+   {
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_01,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_07,   { RFC_LOW,  -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_RF_PATH_SEL_14,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_PA_ON_19,   { RFC_HIGH, -10 }, {RFC_LOW, 0 }  },
++    { (int)RFC_WTR4905_CHINA_V2_PA0_R0,   { RFC_CONFIG_ONLY, 0 }, {RFC_LOW, 0 }  },
+     { (int)RFC_WTR4905_CHINA_V2_TIMING_PA_CTL,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -10 }, {RFC_LOW, 0 }  },
+     { (int)RFC_WTR4905_CHINA_V2_TIMING_PA_RANGE,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -3 }, {RFC_LOW, 0 }  },
+     { (int)RFC_WTR4905_CHINA_V2_TIMING_ASM_CTL,   { RFC_CONFIG_ONLY  /*Warning: Not specified*/ , -10 }, {RFC_LOW, 0 }  },

@@ -23,15 +23,22 @@ at its top.
   `../pmos`.
 - **`0004-soc-id-msm8916`**: the chip reports SoC id 0x2000 (MSM8916)
   (`config/8936.genns/ms/image_cfg.xml`).
-- **`0005-rfc-optional-qfe3320-family`**: the `china_v2` RF card lists a QFE3320
-  front-end module (power amplifier and switches) that some boards do not carry;
-  those parts become optional instead of failing RF initialisation (`rfc.cpp`).
 - **`0006-rfc-lte-grfc-pa-only-with-pa-on`**: the generic power amplifier
   switched by GRFC lines (RF control pins of the modem chip) is added only to
   LTE bands that have a `PA_ON` signal (`rfc_lte.cpp`).
 - **`0007-rf-sandbox-task`**: the `rf_sandbox` task through which the host runs
   code on the modem DSP (`rfa/rf/task/common/`), and a writable IMEM mapping for
   its address table (`config/8916/ms/cust_config.xml`).
+- **`0008-rfc-china-v2-real-hardware-data`**: the `china_v2` RF card lists
+  devices (an ASM front-end module and extra tuners) that this board does not
+  carry; its device list, device counts and GSM receive ports are matched to
+  what the real hardware firmware uses, and the GSM antenna-switching sequence
+  is rewritten to use GRFC lines instead of the missing ASM
+  (`rfc_wtr4905_china_v2_*`). This is a replacement for an earlier approach
+  (making the missing devices optional in the RFC framework shared by every RF
+  card, `rfc.cpp`) that worked around the symptom instead of fixing the card's
+  own data, and left receive sensitivity far below what this fix reaches on the
+  same board.
 
 ### The `rf_sandbox` task
 
